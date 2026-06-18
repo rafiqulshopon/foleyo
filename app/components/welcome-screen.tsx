@@ -2,6 +2,7 @@
 
 import { useCourse } from '@/app/context/course-context';
 import { useEffect, useState, useCallback } from 'react';
+import Image from 'next/image';
 import {
   loadRecentCourses,
   removeRecentCourse,
@@ -288,16 +289,15 @@ export function WelcomeScreen() {
         <div className="text-center mb-8">
           {/* Logo */}
           <div className="mb-6 flex justify-center">
-            <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-accent via-purple-500 to-pink-500 flex items-center justify-center shadow-2xl shadow-accent/30">
-              <svg
-                width="32"
-                height="32"
-                viewBox="0 0 24 24"
-                fill="white"
-                className="drop-shadow-md"
-              >
-                <polygon points="5 3 19 12 5 21 5 3" />
-              </svg>
+            <div className="relative w-24 h-24 flex items-center justify-center drop-shadow-2xl hover:scale-105 transition-transform duration-300">
+              <Image 
+                src="/logo.png" 
+                alt="Foleyo Logo" 
+                fill 
+                sizes="96px"
+                className="object-contain" 
+                priority
+              />
             </div>
           </div>
 

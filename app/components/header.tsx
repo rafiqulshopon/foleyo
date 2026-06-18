@@ -3,6 +3,7 @@
 import { useCourse } from '@/app/context/course-context';
 import { useTheme } from '@/app/context/theme-context';
 import { useState } from 'react';
+import Image from 'next/image';
 
 function ThemeToggle() {
   const { theme, toggleTheme } = useTheme();
@@ -129,16 +130,14 @@ export function Header() {
 
         {/* Logo */}
         <div className="flex items-center gap-2.5">
-          <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-accent to-purple-400 flex items-center justify-center">
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="white"
-              className="drop-shadow-sm"
-            >
-              <polygon points="5 3 19 12 5 21 5 3" />
-            </svg>
+          <div className="relative w-7 h-7 flex items-center justify-center">
+            <Image 
+              src="/logo.png" 
+              alt="Foleyo Logo" 
+              fill 
+              sizes="28px"
+              className="object-contain" 
+            />
           </div>
           <span className="font-semibold text-base tracking-tight">
             Foleyo
