@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useCallback, useState } from 'react';
-import { MediaPlayer, MediaProvider, type MediaPlayerInstance } from '@vidstack/react';
+import { MediaPlayer, MediaProvider, useMediaRemote, type MediaPlayerInstance } from '@vidstack/react';
 import {
   DefaultVideoLayout,
   defaultLayoutIcons,
@@ -26,6 +26,14 @@ export function VideoPlayer() {
   const playerRef = useRef<MediaPlayerInstance>(null);
   const hasRestoredRef = useRef<string | null>(null);
   const [isReady, setIsReady] = useState(false);
+  const [playbackRate, setPlaybackRate] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const savedSpeedStr = localStorage.getItem('foleyo_playback_speed');
+      const savedSpeed = savedSpeedStr ? parseFloat(savedSpeedStr) : 1;
+      return !isNaN(savedSpeed) ? savedSpeed : 1;
+    }
+    return 1;
+  });
 
   // Restore position when lesson changes
   useEffect(() => {
@@ -45,6 +53,8 @@ export function VideoPlayer() {
     hasRestoredRef.current = null;
   }, [videoUrl]);
 
+  const remote = useMediaRemote(playerRef);
+
   const handleTimeUpdate = useCallback(
     (detail: { currentTime: number }) => {
       updatePosition(detail.currentTime);
@@ -54,6 +64,16 @@ export function VideoPlayer() {
 
   const handleCanPlay = useCallback(() => {
     setIsReady(true);
+    // Explicitly set the remote playback rate as Vidstack doesn't automatically sync the prop
+    if (remote) {
+      remote.changePlaybackRate(playbackRate);
+    }
+  }, [remote, playbackRate]);
+
+  // Vidstack passes the new rate as the first argument (detail)
+  const handleRateChange = useCallback((rate: number) => {
+    setPlaybackRate(rate);
+    localStorage.setItem('foleyo_playback_speed', rate.toString());
   }, []);
 
   const handleEnded = useCallback(() => {
@@ -100,6 +120,8 @@ export function VideoPlayer() {
             onTimeUpdate={handleTimeUpdate}
             onCanPlay={handleCanPlay}
             onEnded={handleEnded}
+            onRateChange={handleRateChange}
+            playbackRate={playbackRate}
             autoPlay
             className="w-full aspect-video"
             keyTarget="player"
