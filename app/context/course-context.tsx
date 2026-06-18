@@ -20,6 +20,12 @@ import {
   getLessonProgress,
   getCompletionStats,
 } from '@/app/lib/progress-store';
+import {
+  saveRecentCourse,
+  updateRecentCourseMetadata,
+  getDirectoryHandle,
+  type RecentCourse,
+} from '@/app/lib/recent-courses-store';
 
 interface CourseContextType {
   // State
@@ -35,6 +41,7 @@ interface CourseContextType {
 
   // Actions
   openFolder: () => Promise<void>;
+  resumeRecentCourse: (folderName: string) => Promise<void>;
   selectLesson: (lesson: Lesson) => Promise<void>;
   nextLesson: () => void;
   prevLesson: () => void;
@@ -68,6 +75,8 @@ export function CourseProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const [hasMkvFiles, setHasMkvFiles] = useState(false);
 
+  // Track current directory handle for saving to recent courses
+  const dirHandleRef = useRef<FileSystemDirectoryHandle | null>(null);
   const currentUrlRef = useRef<string | null>(null);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -104,31 +113,13 @@ export function CourseProvider({ children }: { children: ReactNode }) {
     [revokeUrl]
   );
 
-  // Open folder picker
-  const openFolder = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
-
-    try {
-      // Check browser support
-      if (!('showDirectoryPicker' in window)) {
-        setError(
-          'Your browser does not support the File System Access API. Please use Chrome or Edge.'
-        );
-        setIsLoading(false);
-        return;
-      }
-
-      const dirHandle = await window.showDirectoryPicker({ mode: 'read' });
-      const parsedCourse = await parseCourseDirectory(dirHandle);
-
-      if (parsedCourse.totalLessons === 0) {
-        setError(
-          'No video files found in the selected folder. Make sure your course folder contains .mp4, .mkv, .webm, or .mov files.'
-        );
-        setIsLoading(false);
-        return;
-      }
+  /**
+   * Shared logic: once we have a dirHandle and a parsed course,
+   * set up state, load progress, resume last lesson, and persist to IndexedDB.
+   */
+  const initializeCourse = useCallback(
+    async (dirHandle: FileSystemDirectoryHandle, parsedCourse: Course) => {
+      dirHandleRef.current = dirHandle;
 
       // Check for MKV files
       const hasMkv = parsedCourse.modules.some((m) =>
@@ -166,6 +157,64 @@ export function CourseProvider({ children }: { children: ReactNode }) {
         setCurrentLesson(resumeLesson);
       }
 
+      // Find the current lesson info for the recent course card
+      const currentLessonForCard = resumeLesson || allLessons[0];
+      const currentModule = parsedCourse.modules.find(
+        (m) => m.id === currentLessonForCard?.moduleId
+      );
+
+      // Calculate completed count from progress
+      const completedCount = allLessons.filter(
+        (l) => courseProgress!.lessons[l.id]?.completed
+      ).length;
+
+      // Save to recent courses in IndexedDB
+      const recentEntry: RecentCourse = {
+        name: parsedCourse.name,
+        folderName: dirHandle.name,
+        totalLessons: parsedCourse.totalLessons,
+        completedLessons: completedCount,
+        totalModules: parsedCourse.modules.length,
+        lastOpenedAt: Date.now(),
+        lastLessonTitle: currentLessonForCard?.title || '',
+        lastLessonModule: currentModule?.title || '',
+        percentage:
+          parsedCourse.totalLessons > 0
+            ? Math.round((completedCount / parsedCourse.totalLessons) * 100)
+            : 0,
+      };
+      await saveRecentCourse(recentEntry, dirHandle);
+    },
+    [loadVideo]
+  );
+
+  // Open folder picker
+  const openFolder = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      // Check browser support
+      if (!('showDirectoryPicker' in window)) {
+        setError(
+          'Your browser does not support the File System Access API. Please use Chrome or Edge.'
+        );
+        setIsLoading(false);
+        return;
+      }
+
+      const dirHandle = await window.showDirectoryPicker({ mode: 'read' });
+      const parsedCourse = await parseCourseDirectory(dirHandle);
+
+      if (parsedCourse.totalLessons === 0) {
+        setError(
+          'No video files found in the selected folder. Make sure your course folder contains .mp4, .mkv, .webm, or .mov files.'
+        );
+        setIsLoading(false);
+        return;
+      }
+
+      await initializeCourse(dirHandle, parsedCourse);
       setIsLoading(false);
     } catch (e) {
       if (e instanceof DOMException && e.name === 'AbortError') {
@@ -177,7 +226,50 @@ export function CourseProvider({ children }: { children: ReactNode }) {
       setError(`Failed to open folder: ${e instanceof Error ? e.message : 'Unknown error'}`);
       setIsLoading(false);
     }
-  }, [loadVideo]);
+  }, [initializeCourse]);
+
+  // Resume a recently opened course from IndexedDB handle
+  const resumeRecentCourse = useCallback(
+    async (folderName: string) => {
+      setIsLoading(true);
+      setError(null);
+
+      try {
+        const handle = await getDirectoryHandle(folderName);
+        if (!handle) {
+          setError('Course folder handle not found. Please open the folder again.');
+          setIsLoading(false);
+          return;
+        }
+
+        // Request permission (may show a prompt)
+        const permission = await handle.requestPermission({ mode: 'read' });
+        if (permission !== 'granted') {
+          setError('Permission denied. Please grant access to continue.');
+          setIsLoading(false);
+          return;
+        }
+
+        const parsedCourse = await parseCourseDirectory(handle);
+
+        if (parsedCourse.totalLessons === 0) {
+          setError('No video files found. The folder may have been moved or deleted.');
+          setIsLoading(false);
+          return;
+        }
+
+        await initializeCourse(handle, parsedCourse);
+        setIsLoading(false);
+      } catch (e) {
+        console.error('Error resuming course:', e);
+        setError(
+          `Failed to resume course: ${e instanceof Error ? e.message : 'Unknown error'}. Try opening the folder again.`
+        );
+        setIsLoading(false);
+      }
+    },
+    [initializeCourse]
+  );
 
   // Select a specific lesson
   const selectLesson = useCallback(
@@ -254,8 +346,25 @@ export function CourseProvider({ children }: { children: ReactNode }) {
 
   // Mark lesson complete/incomplete
   const markComplete = useCallback((lessonId: string) => {
-    setProgress((prev) => toggleLessonComplete(prev, lessonId));
-  }, []);
+    setProgress((prev) => {
+      const updated = toggleLessonComplete(prev, lessonId);
+      // Update recent course metadata in background
+      if (course && dirHandleRef.current) {
+        const allLessons = course.modules.flatMap((m) => m.lessons);
+        const completedCount = allLessons.filter(
+          (l) => updated.lessons[l.id]?.completed
+        ).length;
+        updateRecentCourseMetadata(dirHandleRef.current.name, {
+          completedLessons: completedCount,
+          percentage:
+            course.totalLessons > 0
+              ? Math.round((completedCount / course.totalLessons) * 100)
+              : 0,
+        });
+      }
+      return updated;
+    });
+  }, [course]);
 
   // Update playback position (debounced save)
   const updatePosition = useCallback(
@@ -309,6 +418,7 @@ export function CourseProvider({ children }: { children: ReactNode }) {
         error,
         hasMkvFiles,
         openFolder,
+        resumeRecentCourse,
         selectLesson,
         nextLesson,
         prevLesson,
