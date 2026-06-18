@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="public/icon.svg" width="80" height="80" alt="Foleyo Logo" />
+<img src="public/logo.png" width="80" height="80" alt="Foleyo Logo" />
 
 # Foleyo
 
@@ -179,7 +179,7 @@ Contributions are welcome! Here's how to get started:
 ### 1. Fork & Clone
 
 ```bash
-git clone https://github.com/<your-username>/foleyo.git
+git clone https://github.com/rafiqulshopon/foleyo.git
 cd foleyo
 npm install
 ```
