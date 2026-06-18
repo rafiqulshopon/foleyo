@@ -52,6 +52,7 @@ interface CourseContextType {
   onVideoEnded: () => void;
   getModuleStats: (moduleId: string) => { completed: number; total: number; percentage: number };
   getOverallStats: () => { completed: number; total: number; percentage: number };
+  closeCourse: () => void;
 }
 
 const CourseContext = createContext<CourseContextType | null>(null);
@@ -94,6 +95,69 @@ export function CourseProvider({ children }: { children: ReactNode }) {
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     };
   }, [revokeUrl]);
+
+  const closeCourse = useCallback(async (isPopState = false) => {
+    if (course && dirHandleRef.current) {
+      try {
+        const allLessons = course.modules.flatMap((m) => m.lessons);
+        const completedCount = allLessons.filter(
+          (l) => progress.lessons[l.id]?.completed
+        ).length;
+        
+        await updateRecentCourseMetadata(dirHandleRef.current.name, {
+          lastOpenedAt: Date.now(),
+          completedLessons: completedCount,
+          percentage:
+            course.totalLessons > 0
+              ? Math.round((completedCount / course.totalLessons) * 100)
+              : 0,
+        });
+      } catch (e) {
+        console.error('Failed to update recent course metadata on close', e);
+      }
+    }
+
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+      saveTimeoutRef.current = null;
+    }
+    
+    revokeUrl();
+    setCourse(null);
+    setCurrentLesson(null);
+    setVideoUrl(null);
+    dirHandleRef.current = null;
+    
+    if (!isPopState) {
+      if (window.history.state?.isCourseOpen) {
+        window.history.back();
+      } else {
+        window.history.replaceState({}, '', '/');
+      }
+    }
+  }, [course, progress, revokeUrl]);
+
+  useEffect(() => {
+    const handlePopState = (e: PopStateEvent) => {
+      if (!e.state?.isCourseOpen && course) {
+        closeCourse(true);
+      }
+    };
+    
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && course) {
+        if (['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName || '')) return;
+        closeCourse();
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [course, closeCourse]);
 
   // Get all lessons flat
   const getAllLessons = useCallback((): Lesson[] => {
@@ -184,6 +248,10 @@ export function CourseProvider({ children }: { children: ReactNode }) {
             : 0,
       };
       await saveRecentCourse(recentEntry, dirHandle);
+
+      if (!window.history.state?.isCourseOpen) {
+        window.history.pushState({ isCourseOpen: true }, '', '');
+      }
     },
     [loadVideo]
   );
@@ -429,6 +497,7 @@ export function CourseProvider({ children }: { children: ReactNode }) {
         onVideoEnded,
         getModuleStats,
         getOverallStats,
+        closeCourse,
       }}
     >
       {children}
