@@ -3,9 +3,10 @@
 import { useState, useEffect, useRef } from 'react';
 import { useCourse } from '@/app/context/course-context';
 import { getLessonProgress } from '@/app/lib/progress-store';
+import { useCourseNotes } from '@/app/lib/use-notes';
 import type { Module } from '@/app/types';
 
-function ModuleItem({ module }: { module: Module }) {
+function ModuleItem({ module, notes }: { module: Module; notes: Record<string, string> }) {
   const { currentLesson, selectLesson, progress, markComplete, getModuleStats } =
     useCourse();
   const [expanded, setExpanded] = useState(true);
@@ -147,6 +148,16 @@ function ModuleItem({ module }: { module: Module }) {
                   {lesson.title}
                 </span>
 
+                {/* Notes indicator */}
+                {notes[lesson.id] && notes[lesson.id].trim() !== '' && (
+                  <span title="Has notes" className="shrink-0 flex items-center">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-accent/80">
+                      <path d="M12 20h9" />
+                      <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+                    </svg>
+                  </span>
+                )}
+
                 {/* MKV warning badge */}
                 {isMkv && (
                   <span
@@ -167,6 +178,7 @@ function ModuleItem({ module }: { module: Module }) {
 
 export function Sidebar() {
   const { course, sidebarOpen } = useCourse();
+  const notes = useCourseNotes(course?.name);
 
   if (!course) return null;
 
@@ -191,7 +203,7 @@ export function Sidebar() {
         {/* Module list */}
         <nav>
           {course.modules.map((module) => (
-            <ModuleItem key={module.id} module={module} />
+            <ModuleItem key={module.id} module={module} notes={notes} />
           ))}
         </nav>
       </div>

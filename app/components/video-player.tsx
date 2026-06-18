@@ -10,6 +10,7 @@ import '@vidstack/react/player/styles/default/theme.css';
 import '@vidstack/react/player/styles/default/layouts/video.css';
 import { useCourse } from '@/app/context/course-context';
 import { getLessonProgress } from '@/app/lib/progress-store';
+import { useNotes } from '@/app/lib/use-notes';
 
 export function VideoPlayer() {
   const {
@@ -26,6 +27,9 @@ export function VideoPlayer() {
   const playerRef = useRef<MediaPlayerInstance>(null);
   const hasRestoredRef = useRef<string | null>(null);
   const [isReady, setIsReady] = useState(false);
+  const [showNotes, setShowNotes] = useState(false);
+  const { note, updateNote, isSaved } = useNotes(course?.name, currentLesson?.id);
+
   const [playbackRate, setPlaybackRate] = useState(() => {
     if (typeof window !== 'undefined') {
       const savedSpeedStr = localStorage.getItem('foleyo_playback_speed');
@@ -160,10 +164,28 @@ export function VideoPlayer() {
             <span className="hidden sm:inline">Previous</span>
           </button>
 
-          {/* Lesson position indicator */}
-          <span className="text-xs text-foreground-subtle font-mono">
-            {currentIdx + 1} / {allLessons.length}
-          </span>
+          <div className="flex items-center gap-4">
+            <button
+              onClick={() => setShowNotes(!showNotes)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+                showNotes ? 'bg-surface-active text-foreground' : 'text-foreground-subtle hover:text-foreground hover:bg-surface'
+              }`}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 20h9" />
+                <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+              </svg>
+              Notes
+              {note.trim() !== '' && !showNotes && (
+                <span className="w-1.5 h-1.5 rounded-full bg-accent ml-1" />
+              )}
+            </button>
+            
+            {/* Lesson position indicator */}
+            <span className="text-xs text-foreground-subtle font-mono">
+              {currentIdx + 1} / {allLessons.length}
+            </span>
+          </div>
 
           <button
             onClick={nextLesson}
@@ -190,6 +212,7 @@ export function VideoPlayer() {
           </button>
         </div>
 
+
         {/* MKV warning */}
         {currentLesson.fileName.toLowerCase().endsWith('.mkv') && (
           <div className="mt-4 px-4 py-3 rounded-xl bg-warning/10 border border-warning/20 text-warning text-xs flex items-start gap-2">
@@ -215,6 +238,43 @@ export function VideoPlayer() {
             </span>
           </div>
         )}
+      </div>
+
+      {/* Floating Notes Drawer */}
+      <div
+        className={`fixed top-0 right-0 h-full w-80 lg:w-96 bg-surface/90 backdrop-blur-xl border-l border-border shadow-2xl z-50 transform transition-transform duration-300 ease-out flex flex-col ${
+          showNotes ? 'translate-x-0' : 'translate-x-full'
+        }`}
+      >
+        <div className="flex items-center justify-between p-5 border-b border-border bg-surface/50">
+          <div className="flex items-center gap-3">
+            <h3 className="font-semibold text-foreground text-base">Lesson Notes</h3>
+            <span className={`text-xs font-medium flex items-center gap-1 transition-opacity duration-300 ${isSaved ? 'opacity-100 text-success' : 'opacity-0'}`}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+              Saved
+            </span>
+          </div>
+          <button
+            onClick={() => setShowNotes(false)}
+            className="p-2 rounded-xl text-foreground-subtle hover:text-foreground hover:bg-surface-hover transition-colors"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        </div>
+        
+        <div className="flex-1 p-5 overflow-hidden flex flex-col">
+          <textarea
+            value={note}
+            onChange={(e) => updateNote(e.target.value)}
+            placeholder="Write your notes here... (Auto-saves as you type)"
+            className="flex-1 w-full p-4 rounded-xl bg-background/50 border border-border text-sm leading-relaxed text-foreground focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent resize-none transition-all placeholder:text-foreground-muted/50"
+          />
+        </div>
       </div>
     </div>
   );
