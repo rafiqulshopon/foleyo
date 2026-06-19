@@ -10,7 +10,7 @@ import '@vidstack/react/player/styles/default/theme.css';
 import '@vidstack/react/player/styles/default/layouts/video.css';
 import { useCourse } from '@/app/context/course-context';
 import { getLessonProgress } from '@/app/lib/progress-store';
-import { useNotes } from '@/app/lib/use-notes';
+import { useNotes, useCourseNotes } from '@/app/lib/use-notes';
 
 export function VideoPlayer() {
   const {
@@ -31,6 +31,51 @@ export function VideoPlayer() {
   const hasRestoredRef = useRef<string | null>(null);
   const [isReady, setIsReady] = useState(false);
   const { note, updateNote, isSaved } = useNotes(course?.name, currentLesson?.id);
+  const courseNotes = useCourseNotes(course?.name);
+
+  const hasAnyNotes = Object.keys(courseNotes).length > 0 || note.trim() !== '';
+
+  const handleExportNotes = useCallback(() => {
+    if (!course) return;
+
+    const allNotes = { ...courseNotes };
+    if (currentLesson && note.trim() !== '') {
+      allNotes[currentLesson.id] = note;
+    } else if (currentLesson && note.trim() === '') {
+      delete allNotes[currentLesson.id];
+    }
+
+    if (Object.keys(allNotes).length === 0) return;
+
+    let markdown = `# ${course.name} — Notes\n\n`;
+
+    course.modules.forEach((module) => {
+      let moduleHasNotes = false;
+      let moduleMarkdown = `## ${module.title}\n\n`;
+
+      module.lessons.forEach((lesson) => {
+        const lessonNote = allNotes[lesson.id];
+        if (lessonNote && lessonNote.trim() !== '') {
+          moduleHasNotes = true;
+          moduleMarkdown += `### ${lesson.title}\n${lessonNote.trim()}\n\n`;
+        }
+      });
+
+      if (moduleHasNotes) {
+        markdown += moduleMarkdown;
+      }
+    });
+
+    const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${course.name.replace(/[^a-z0-9]/gi, '_').toLowerCase()}-notes.md`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, [course, courseNotes, currentLesson, note]);
 
   const [playbackRate, setPlaybackRate] = useState(() => {
     if (typeof window !== 'undefined') {
@@ -283,12 +328,32 @@ export function VideoPlayer() {
               </svg>
               <h3 className="font-medium text-foreground">Lesson Notes</h3>
             </div>
-            <span className={`text-xs font-medium flex items-center gap-1 transition-opacity duration-300 ${isSaved ? 'opacity-100 text-success' : 'opacity-0'}`}>
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="20 6 9 17 4 12" />
-              </svg>
-              Saved
-            </span>
+            <div className="flex items-center gap-4">
+              <span className={`text-xs font-medium flex items-center gap-1 transition-opacity duration-300 ${isSaved ? 'opacity-100 text-success' : 'opacity-0'}`}>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+                Saved
+              </span>
+              
+              <button
+                onClick={handleExportNotes}
+                disabled={!hasAnyNotes}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                  hasAnyNotes 
+                    ? 'bg-accent/10 text-accent hover:bg-accent hover:text-white' 
+                    : 'bg-surface text-foreground-muted cursor-not-allowed'
+                }`}
+                title={hasAnyNotes ? "Export all notes for this course as Markdown" : "No notes yet"}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <polyline points="7 10 12 15 17 10" />
+                  <line x1="12" y1="15" x2="12" y2="3" />
+                </svg>
+                Export .md
+              </button>
+            </div>
           </div>
           <div className="p-1">
             <textarea
