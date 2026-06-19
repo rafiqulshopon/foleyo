@@ -1,4 +1,5 @@
 import { get, set } from 'idb-keyval';
+import { Course } from '@/app/types';
 
 /**
  * Metadata snapshot of a recently opened course,
@@ -132,6 +133,29 @@ export async function checkHandlePermission(
   try {
     const status = await handle.queryPermission({ mode: 'read' });
     return status;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Cache the parsed course structure (including file handles).
+ */
+export async function saveCourseCache(folderName: string, course: Course): Promise<void> {
+  try {
+    await set(`foleyo_course_cache_${folderName}`, course);
+  } catch (e) {
+    console.warn('Failed to save course cache:', e);
+  }
+}
+
+/**
+ * Load the parsed course structure from cache.
+ */
+export async function getCourseCache(folderName: string): Promise<Course | null> {
+  try {
+    const course = await get<Course>(`foleyo_course_cache_${folderName}`);
+    return course || null;
   } catch {
     return null;
   }

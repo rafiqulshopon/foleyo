@@ -65,7 +65,7 @@ function BrowserCheck() {
 }
 
 function CourseApp() {
-  const { course, hasMkvFiles } = useCourse();
+  const { course, hasMkvFiles, invalidLink } = useCourse();
   const [mkvDismissed, setMkvDismissed] = useState(false);
 
   return (
@@ -118,7 +118,27 @@ function CourseApp() {
       )}
 
       <div className="flex-1 flex overflow-hidden">
-        {course ? (
+        {invalidLink ? (
+          <div className="flex-1 flex flex-col items-center justify-center bg-background p-6 text-center">
+            <div className="w-20 h-20 rounded-full bg-danger/10 flex items-center justify-center text-danger mb-6">
+              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+                <line x1="12" y1="9" x2="12" y2="13" />
+                <line x1="12" y1="17" x2="12.01" y2="17" />
+              </svg>
+            </div>
+            <h2 className="text-3xl font-bold text-foreground mb-4">Course Not Found</h2>
+            <p className="text-foreground-muted mb-8 max-w-md text-lg">
+              The course link is invalid or the course has been removed from your local library.
+            </p>
+            <a 
+              href="/"
+              className="px-6 py-3 bg-accent text-background font-medium rounded-xl hover:bg-accent/90 transition-colors"
+            >
+              Back to Home
+            </a>
+          </div>
+        ) : course ? (
           <>
             <Sidebar />
             <VideoPlayer />

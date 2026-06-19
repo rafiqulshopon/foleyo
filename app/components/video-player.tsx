@@ -23,6 +23,8 @@ export function VideoPlayer() {
     prevLesson,
     course,
     subtitleTracks,
+    requiresPermission,
+    grantPermission,
   } = useCourse();
 
   const playerRef = useRef<MediaPlayerInstance>(null);
@@ -126,42 +128,65 @@ export function VideoPlayer() {
         </div>
 
         {/* Video player */}
-        <div className="rounded-xl overflow-hidden bg-black shadow-2xl shadow-black/50 ring-1 ring-white/5">
-          <MediaPlayer
-            ref={playerRef}
-            src={{ src: videoUrl, type: 'video/mp4' }}
-            crossOrigin=""
-            onTimeUpdate={handleTimeUpdate}
-            onCanPlay={handleCanPlay}
-            onEnded={handleEnded}
-            onRateChange={handleRateChange}
-            onTextTrackChange={(track) => {
-              const isEnabled = track != null;
-              ccEnabledRef.current = isEnabled;
-              localStorage.setItem('foleyo_cc_enabled', isEnabled.toString());
-            }}
-            playbackRate={playbackRate}
-            autoPlay
-            className="w-full aspect-video"
-            keyTarget="player"
-            load="eager"
-          >
-            <MediaProvider>
-              {subtitleTracks.map((track) => (
-                <Track
-                  key={track.src}
-                  src={track.src}
-                  kind="subtitles"
-                  label={track.label}
-                  lang={track.language}
-                  default={ccEnabledRef.current && (track.language === 'en' || subtitleTracks.length === 1)}
-                />
-              ))}
-            </MediaProvider>
-            <DefaultVideoLayout
-              icons={defaultLayoutIcons}
-            />
-          </MediaPlayer>
+        <div className="rounded-xl overflow-hidden bg-black shadow-2xl shadow-black/50 ring-1 ring-white/5 relative aspect-video">
+          {requiresPermission ? (
+            <div 
+              className="absolute inset-0 flex items-center justify-center bg-black/80 cursor-pointer group hover:bg-black/70 transition-colors"
+              onClick={grantPermission}
+            >
+              <div className="flex flex-col items-center">
+                <div className="w-20 h-20 rounded-full bg-accent/90 flex items-center justify-center text-white mb-4 group-hover:scale-110 transition-transform shadow-[0_0_30px_rgba(var(--accent),0.3)]">
+                  <svg width="36" height="36" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" className="ml-2">
+                    <polygon points="5 3 19 12 5 21 5 3" />
+                  </svg>
+                </div>
+                <p className="text-white/80 text-sm font-medium">Click to resume video</p>
+              </div>
+            </div>
+          ) : !videoUrl ? (
+            <div className="absolute inset-0 flex items-center justify-center bg-black/80">
+              <div className="flex flex-col items-center gap-3">
+                <div className="w-8 h-8 border-4 border-accent border-t-transparent rounded-full animate-spin"></div>
+                <p className="text-white/60 text-sm">Loading video...</p>
+              </div>
+            </div>
+          ) : (
+            <MediaPlayer
+              ref={playerRef}
+              src={{ src: videoUrl, type: 'video/mp4' }}
+              crossOrigin=""
+              onTimeUpdate={handleTimeUpdate}
+              onCanPlay={handleCanPlay}
+              onEnded={handleEnded}
+              onRateChange={handleRateChange}
+              onTextTrackChange={(track) => {
+                const isEnabled = track != null;
+                ccEnabledRef.current = isEnabled;
+                localStorage.setItem('foleyo_cc_enabled', isEnabled.toString());
+              }}
+              playbackRate={playbackRate}
+              autoPlay
+              className="w-full h-full"
+              keyTarget="player"
+              load="eager"
+            >
+              <MediaProvider>
+                {subtitleTracks.map((track) => (
+                  <Track
+                    key={track.src}
+                    src={track.src}
+                    kind="subtitles"
+                    label={track.label}
+                    lang={track.language}
+                    default={ccEnabledRef.current && (track.language === 'en' || subtitleTracks.length === 1)}
+                  />
+                ))}
+              </MediaProvider>
+              <DefaultVideoLayout
+                icons={defaultLayoutIcons}
+              />
+            </MediaPlayer>
+          )}
         </div>
 
         {/* Navigation controls */}

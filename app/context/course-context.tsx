@@ -24,6 +24,9 @@ import {
   saveRecentCourse,
   updateRecentCourseMetadata,
   getDirectoryHandle,
+  getCourseCache,
+  saveCourseCache,
+  checkHandlePermission,
   type RecentCourse,
 } from '@/app/lib/recent-courses-store';
 import { loadSubtitle } from '@/app/lib/subtitles';
@@ -46,6 +49,8 @@ interface CourseContextType {
   isLoading: boolean;
   error: string | null;
   hasMkvFiles: boolean;
+  requiresPermission: boolean;
+  invalidLink: boolean;
 
   // Actions
   openFolder: () => Promise<void>;
@@ -61,6 +66,7 @@ interface CourseContextType {
   getModuleStats: (moduleId: string) => { completed: number; total: number; percentage: number };
   getOverallStats: () => { completed: number; total: number; percentage: number };
   closeCourse: () => void;
+  grantPermission: () => Promise<void>;
 }
 
 const CourseContext = createContext<CourseContextType | null>(null);
@@ -84,6 +90,8 @@ export function CourseProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hasMkvFiles, setHasMkvFiles] = useState(false);
+  const [requiresPermission, setRequiresPermission] = useState(false);
+  const [invalidLink, setInvalidLink] = useState(false);
 
   // Track current directory handle for saving to recent courses
   const dirHandleRef = useRef<FileSystemDirectoryHandle | null>(null);
@@ -285,7 +293,6 @@ export function CourseProvider({ children }: { children: ReactNode }) {
         (l) => courseProgress!.lessons[l.id]?.completed
       ).length;
 
-      // Save to recent courses in IndexedDB
       const recentEntry: RecentCourse = {
         name: parsedCourse.name,
         folderName: dirHandle.name,
@@ -301,9 +308,13 @@ export function CourseProvider({ children }: { children: ReactNode }) {
             : 0,
       };
       await saveRecentCourse(recentEntry, dirHandle);
+      await saveCourseCache(dirHandle.name, parsedCourse);
 
+      const urlParam = `?course=${encodeURIComponent(dirHandle.name)}`;
       if (!window.history.state?.isCourseOpen) {
-        window.history.pushState({ isCourseOpen: true }, '', '');
+        window.history.pushState({ isCourseOpen: true }, '', urlParam);
+      } else {
+        window.history.replaceState({ isCourseOpen: true }, '', urlParam);
       }
     },
     [loadVideo]
@@ -526,6 +537,78 @@ export function CourseProvider({ children }: { children: ReactNode }) {
     return getCompletionStats(progress, allIds);
   }, [course, progress]);
 
+  const grantPermission = useCallback(async () => {
+    if (!dirHandleRef.current || !course) return;
+    try {
+      const status = await dirHandleRef.current.requestPermission({ mode: 'read' });
+      if (status === 'granted') {
+        setRequiresPermission(false);
+        if (currentLesson) {
+          const url = await loadVideo(currentLesson);
+          setVideoUrl(url);
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to grant permission', e);
+    }
+  }, [course, currentLesson, loadVideo]);
+
+  // Read URL param on mount to restore cached course state
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const params = new URLSearchParams(window.location.search);
+    const courseParam = params.get('course');
+    if (!courseParam) return;
+
+    let isCancelled = false;
+    async function loadFromCache() {
+      setIsLoading(true);
+      const dirHandle = await getDirectoryHandle(courseParam!);
+      const courseCache = await getCourseCache(courseParam!);
+
+      if (isCancelled) return;
+
+      if (!dirHandle || !courseCache) {
+        setInvalidLink(true);
+        setIsLoading(false);
+        return;
+      }
+
+      const status = await checkHandlePermission(courseParam!);
+      if (status === 'granted') {
+        await initializeCourse(dirHandle, courseCache);
+        setIsLoading(false);
+        return;
+      }
+
+      dirHandleRef.current = dirHandle;
+      
+      const hasMkv = courseCache.modules.some((m) =>
+        m.lessons.some((l) => l.fileName.toLowerCase().endsWith('.mkv'))
+      );
+      setHasMkvFiles(hasMkv);
+      setCourse(courseCache);
+
+      let courseProgress = loadProgress(courseCache.name);
+      if (!courseProgress) {
+        courseProgress = createEmptyProgress(courseCache.name);
+      }
+      setProgress(courseProgress);
+
+      const allLessons = courseCache.modules.flatMap((m) => m.lessons);
+      let resumeLesson = allLessons.find((l) => l.id === courseProgress!.lastLessonId) || allLessons[0];
+      
+      setCurrentLesson(resumeLesson);
+      setRequiresPermission(true);
+      setIsLoading(false);
+    }
+
+    loadFromCache();
+
+    return () => { isCancelled = true; };
+  }, [initializeCourse]);
+
   return (
     <CourseContext.Provider
       value={{
@@ -539,6 +622,8 @@ export function CourseProvider({ children }: { children: ReactNode }) {
         isLoading,
         error,
         hasMkvFiles,
+        requiresPermission,
+        invalidLink,
         openFolder,
         resumeRecentCourse,
         selectLesson,
@@ -552,6 +637,7 @@ export function CourseProvider({ children }: { children: ReactNode }) {
         getModuleStats,
         getOverallStats,
         closeCourse,
+        grantPermission,
       }}
     >
       {children}
