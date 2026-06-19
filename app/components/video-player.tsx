@@ -30,7 +30,6 @@ export function VideoPlayer() {
   const playerRef = useRef<MediaPlayerInstance>(null);
   const hasRestoredRef = useRef<string | null>(null);
   const [isReady, setIsReady] = useState(false);
-  const [showNotes, setShowNotes] = useState(false);
   const { note, updateNote, isSaved } = useNotes(course?.name, currentLesson?.id);
 
   const [playbackRate, setPlaybackRate] = useState(() => {
@@ -215,23 +214,7 @@ export function VideoPlayer() {
             <span className="hidden sm:inline">Previous</span>
           </button>
 
-          <div className="flex items-center gap-4">
-            <button
-              onClick={() => setShowNotes(!showNotes)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
-                showNotes ? 'bg-surface-active text-foreground' : 'text-foreground-subtle hover:text-foreground hover:bg-surface'
-              }`}
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 20h9" />
-                <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
-              </svg>
-              Notes
-              {note.trim() !== '' && !showNotes && (
-                <span className="w-1.5 h-1.5 rounded-full bg-accent ml-1" />
-              )}
-            </button>
-            
+          <div className="flex items-center justify-center flex-1">
             {/* Lesson position indicator */}
             <span className="text-xs text-foreground-subtle font-mono">
               {currentIdx + 1} / {allLessons.length}
@@ -289,17 +272,17 @@ export function VideoPlayer() {
             </span>
           </div>
         )}
-      </div>
 
-      {/* Floating Notes Drawer */}
-      <div
-        className={`fixed top-0 right-0 h-full w-80 lg:w-96 bg-surface/90 backdrop-blur-xl border-l border-border shadow-2xl z-50 transform transition-transform duration-300 ease-out flex flex-col ${
-          showNotes ? 'translate-x-0' : 'translate-x-full'
-        }`}
-      >
-        <div className="flex items-center justify-between p-5 border-b border-border bg-surface/50">
-          <div className="flex items-center gap-3">
-            <h3 className="font-semibold text-foreground text-base">Lesson Notes</h3>
+        {/* Inline Notes Section */}
+        <div className="mt-8 bg-surface border border-border rounded-xl overflow-hidden shadow-sm">
+          <div className="flex items-center justify-between px-5 py-4 border-b border-border bg-surface-hover/50">
+            <div className="flex items-center gap-2">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-foreground-subtle">
+                <path d="M12 20h9" />
+                <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+              </svg>
+              <h3 className="font-medium text-foreground">Lesson Notes</h3>
+            </div>
             <span className={`text-xs font-medium flex items-center gap-1 transition-opacity duration-300 ${isSaved ? 'opacity-100 text-success' : 'opacity-0'}`}>
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
                 <polyline points="20 6 9 17 4 12" />
@@ -307,24 +290,14 @@ export function VideoPlayer() {
               Saved
             </span>
           </div>
-          <button
-            onClick={() => setShowNotes(false)}
-            className="p-2 rounded-xl text-foreground-subtle hover:text-foreground hover:bg-surface-hover transition-colors"
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <line x1="18" y1="6" x2="6" y2="18" />
-              <line x1="6" y1="6" x2="18" y2="18" />
-            </svg>
-          </button>
-        </div>
-        
-        <div className="flex-1 p-5 overflow-hidden flex flex-col">
-          <textarea
-            value={note}
-            onChange={(e) => updateNote(e.target.value)}
-            placeholder="Write your notes here... (Auto-saves as you type)"
-            className="flex-1 w-full p-4 rounded-xl bg-background/50 border border-border text-sm leading-relaxed text-foreground focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent resize-none transition-all placeholder:text-foreground-muted/50"
-          />
+          <div className="p-1">
+            <textarea
+              value={note}
+              onChange={(e) => updateNote(e.target.value)}
+              placeholder="Write your notes here... (Auto-saves as you type)"
+              className="w-full min-h-[160px] p-4 bg-transparent border-none text-sm leading-relaxed text-foreground focus:outline-none focus:ring-0 resize-y placeholder:text-foreground-muted/50"
+            />
+          </div>
         </div>
       </div>
     </div>
