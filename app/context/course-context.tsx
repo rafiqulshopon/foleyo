@@ -152,10 +152,12 @@ export function CourseProvider({ children }: { children: ReactNode }) {
     dirHandleRef.current = null;
     
     if (!isPopState) {
-      if (window.history.state?.isCourseOpen) {
+      if (window.history.state?.fromDirectLink) {
+        window.history.replaceState({}, '', '/');
+      } else if (window.history.state?.isCourseOpen) {
         window.history.back();
       } else {
-        window.history.replaceState({}, '', '/');
+        window.history.pushState({}, '', '/');
       }
     }
   }, [course, progress, revokeUrl]);
@@ -199,8 +201,17 @@ export function CourseProvider({ children }: { children: ReactNode }) {
       // Load subtitles if present
       if (lesson.subtitles && lesson.subtitles.length > 0) {
         try {
+          // Deduplicate here to handle existing cached courses
+          const uniqueSubtitles = new Map<string, typeof lesson.subtitles[0]>();
+          lesson.subtitles.forEach((sub) => {
+            const existing = uniqueSubtitles.get(sub.language);
+            if (!existing || sub.format === 'vtt') {
+              uniqueSubtitles.set(sub.language, sub);
+            }
+          });
+
           const tracks = await Promise.all(
-            lesson.subtitles.map(async (sub) => {
+            Array.from(uniqueSubtitles.values()).map(async (sub) => {
               const src = await loadSubtitle(sub.fileHandle, sub.format);
               
               // Map simple languages to labels, fallback to uppercase
@@ -323,10 +334,12 @@ export function CourseProvider({ children }: { children: ReactNode }) {
       await saveCourseCache(dirHandle.name, parsedCourse);
 
       const urlParam = `?course=${encodeURIComponent(dirHandle.name)}`;
-      if (!window.history.state?.isCourseOpen) {
-        window.history.pushState({ isCourseOpen: true }, '', urlParam);
+      if (window.location.search === urlParam) {
+        window.history.replaceState({ isCourseOpen: true, fromDirectLink: true }, '', urlParam);
+      } else if (!window.history.state?.isCourseOpen) {
+        window.history.pushState({ isCourseOpen: true, fromDirectLink: false }, '', urlParam);
       } else {
-        window.history.replaceState({ isCourseOpen: true }, '', urlParam);
+        window.history.replaceState({ isCourseOpen: true, fromDirectLink: false }, '', urlParam);
       }
     },
     [loadVideo]

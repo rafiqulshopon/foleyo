@@ -196,6 +196,7 @@ export function VideoPlayer() {
             </div>
           ) : (
             <MediaPlayer
+              key={currentLesson?.id}
               ref={playerRef}
               src={{ src: videoUrl, type: 'video/mp4' }}
               crossOrigin=""
@@ -217,7 +218,7 @@ export function VideoPlayer() {
               <MediaProvider>
                 {subtitleTracks.map((track) => (
                   <Track
-                    key={track.src}
+                    key={`${track.language}-${track.label}`}
                     src={track.src}
                     kind="subtitles"
                     label={track.label}
