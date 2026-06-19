@@ -18,7 +18,6 @@ import {
   createEmptyProgress,
   updateLessonProgress,
   toggleLessonComplete,
-  getLessonProgress,
   getCompletionStats,
 } from '@/app/lib/progress-store';
 import {
