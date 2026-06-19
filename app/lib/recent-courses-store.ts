@@ -1,4 +1,4 @@
-import { get, set } from 'idb-keyval';
+import { get, set, del } from 'idb-keyval';
 import { Course } from '@/app/types';
 
 /**
@@ -112,9 +112,11 @@ export async function removeRecentCourse(folderName: string): Promise<void> {
     const existing = await loadRecentCourses();
     const filtered = existing.filter((c) => c.folderName !== folderName);
     await set(RECENT_COURSES_KEY, filtered);
-    // We don't delete the handle key — idb-keyval doesn't have a del by default
-    // but we can set it to undefined
-    await set(dirHandleKey(folderName), undefined);
+    
+    // Clean up handle, cache, and thumbnail
+    await del(dirHandleKey(folderName));
+    await del(`foleyo_course_cache_${folderName}`);
+    await del(`foleyo_thumb_${folderName}`);
   } catch (e) {
     console.warn('Failed to remove recent course:', e);
   }

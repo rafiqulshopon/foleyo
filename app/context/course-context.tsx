@@ -11,6 +11,7 @@ import {
 } from 'react';
 import { Course, Lesson, CourseProgress } from '@/app/types';
 import { parseCourseDirectory } from '@/app/lib/parse-course';
+import { generateCourseThumbnail } from '@/app/lib/thumbnail-generator';
 import {
   loadProgress,
   saveProgress,
@@ -308,6 +309,14 @@ export function CourseProvider({ children }: { children: ReactNode }) {
             : 0,
       };
       await saveRecentCourse(recentEntry, dirHandle);
+      
+      // Trigger thumbnail generation in the background
+      const firstLesson = parsedCourse.modules[0]?.lessons[0];
+      if (firstLesson) {
+        generateCourseThumbnail(parsedCourse.name, firstLesson).catch(console.error);
+      }
+
+      setCourse(parsedCourse);
       await saveCourseCache(dirHandle.name, parsedCourse);
 
       const urlParam = `?course=${encodeURIComponent(dirHandle.name)}`;

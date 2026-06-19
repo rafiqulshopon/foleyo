@@ -8,6 +8,7 @@ import {
   removeRecentCourse,
   type RecentCourse,
 } from '@/app/lib/recent-courses-store';
+import { getCourseThumbnail } from '@/app/lib/thumbnail-generator';
 
 /**
  * Format a timestamp into a human-readable relative time string.
@@ -82,6 +83,32 @@ function RecentCourseCard({
 }) {
   const [isHovered, setIsHovered] = useState(false);
   const [removing, setRemoving] = useState(false);
+  const [thumbnail, setThumbnail] = useState<string | null | 'generating'>(null);
+
+  useEffect(() => {
+    getCourseThumbnail(course.name).then(setThumbnail);
+
+    const handleGen = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      if (customEvent.detail.courseId === course.name) {
+        setThumbnail('generating');
+      }
+    };
+
+    const handleReady = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      if (customEvent.detail.courseId === course.name) {
+        setThumbnail(customEvent.detail.thumbnail || null);
+      }
+    };
+
+    window.addEventListener('foleyo-thumbnail-generating', handleGen);
+    window.addEventListener('foleyo-thumbnail-ready', handleReady);
+    return () => {
+      window.removeEventListener('foleyo-thumbnail-generating', handleGen);
+      window.removeEventListener('foleyo-thumbnail-ready', handleReady);
+    };
+  }, [course.name]);
 
   const handleRemove = useCallback(
     (e: React.MouseEvent) => {
@@ -108,22 +135,32 @@ function RecentCourseCard({
       }`}
       style={{ animationDelay: `${index * 60}ms` }}
     >
-      {/* Top gradient accent bar */}
-      <div
-        className={`h-1 w-full bg-gradient-to-r ${gradient} opacity-60 group-hover:opacity-100 transition-opacity duration-300`}
-      />
+      {/* Top thumbnail / gradient banner */}
+      {thumbnail === 'generating' ? (
+        <div className="w-full h-28 bg-surface-hover animate-pulse" />
+      ) : thumbnail ? (
+        <div className="w-full h-28 bg-black relative">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={thumbnail} alt="" className="w-full h-full object-cover" />
+          <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent opacity-60 group-hover:opacity-100 transition-opacity duration-300" />
+        </div>
+      ) : (
+        <div className={`h-1 w-full bg-gradient-to-r ${gradient} opacity-60 group-hover:opacity-100 transition-opacity duration-300`} />
+      )}
 
       <div className="p-4">
         {/* Top row: avatar + meta */}
         <div className="flex items-start gap-3">
           {/* Course avatar */}
-          <div
-            className={`shrink-0 w-11 h-11 rounded-xl bg-gradient-to-br ${gradient} flex items-center justify-center shadow-lg`}
-          >
-            <span className="text-white font-bold text-sm tracking-tight">
-              {initials}
-            </span>
-          </div>
+          {thumbnail && thumbnail !== 'generating' ? null : (
+            <div
+              className={`shrink-0 w-11 h-11 rounded-xl bg-gradient-to-br ${gradient} flex items-center justify-center shadow-lg`}
+            >
+              <span className="text-white font-bold text-sm tracking-tight">
+                {initials}
+              </span>
+            </div>
+          )}
 
           {/* Course info */}
           <div className="flex-1 min-w-0">
