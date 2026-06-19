@@ -108,11 +108,11 @@ export async function parseCourseDirectory(
       const video = videoFiles[j];
       const baseName = video.name.substring(0, video.name.lastIndexOf('.'));
       
-      const subtitles: SubtitleInfo[] = subtitleFiles
+      const rawSubtitles = subtitleFiles
         .filter((sub) => sub.name.startsWith(baseName + '.'))
         .map((sub) => {
           const lower = sub.name.toLowerCase();
-          const format = lower.endsWith('.vtt') ? 'vtt' : 'srt';
+          const format: 'vtt' | 'srt' = lower.endsWith('.vtt') ? 'vtt' : 'srt';
           // Extract language from suffix e.g. "base.en.srt" -> "en"
           let language = 'Unknown';
           const parts = sub.name.substring(baseName.length + 1, sub.name.lastIndexOf('.')).split('.');
@@ -121,6 +121,16 @@ export async function parseCourseDirectory(
           }
           return { language, format, fileHandle: sub.handle };
         });
+
+      // Deduplicate by language, preferring VTT over SRT
+      const subtitlesMap = new Map<string, typeof rawSubtitles[0]>();
+      rawSubtitles.forEach(sub => {
+        const existing = subtitlesMap.get(sub.language);
+        if (!existing || sub.format === 'vtt') {
+          subtitlesMap.set(sub.language, sub);
+        }
+      });
+      const subtitles: SubtitleInfo[] = Array.from(subtitlesMap.values());
 
       lessons.push({
         id: `${folder.name}/${video.name}`,

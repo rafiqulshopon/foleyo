@@ -231,7 +231,10 @@ export function CourseProvider({ children }: { children: ReactNode }) {
           setSubtitleTracks(tracks);
         } catch (e) {
           console.error('Failed to load subtitles', e);
+          setSubtitleTracks([]);
         }
+      } else {
+        setSubtitleTracks([]);
       }
       
       return url;
