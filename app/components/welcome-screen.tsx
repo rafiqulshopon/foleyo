@@ -339,6 +339,7 @@ export function WelcomeScreen() {
                 sizes="112px"
                 className="object-contain" 
                 priority
+                loading="eager"
               />
             </div>
           </div>
@@ -585,13 +586,13 @@ export function WelcomeScreen() {
                   Organize your course folder simply. Any subfolders are treated as modules, and the video files inside them become lessons. Foleyo automatically builds a Netflix-like sidebar for you.
                 </p>
               </div>
-              <div className="bg-background rounded-xl border border-border/50 p-4 font-mono text-[11px] text-foreground-subtle w-full sm:w-auto shadow-inner">
-                <div className="text-foreground-muted">📁 Complete_Web_Dev/</div>
-                <div className="ml-4 text-foreground-subtle">📁 01_HTML_Basics/</div>
-                <div className="ml-8 text-accent/70">🎬 01_Intro.mp4</div>
-                <div className="ml-8 text-accent/70">🎬 02_Elements.mp4</div>
-                <div className="ml-4 text-foreground-subtle">📁 02_CSS_Styling/</div>
-                <div className="ml-8 text-accent/70">🎬 01_Selectors.mp4</div>
+              <div className="bg-background rounded-xl border border-border/50 p-4 font-mono text-[11px] text-foreground w-full sm:w-auto shadow-inner">
+                <div className="text-foreground font-semibold">📁 Complete_Web_Dev/</div>
+                <div className="ml-4 text-foreground-muted">📁 01_HTML_Basics/</div>
+                <div className="ml-8 text-accent font-medium">🎬 01_Intro.mp4</div>
+                <div className="ml-8 text-accent font-medium">🎬 02_Elements.mp4</div>
+                <div className="ml-4 text-foreground-muted">📁 02_CSS_Styling/</div>
+                <div className="ml-8 text-accent font-medium">🎬 01_Selectors.mp4</div>
               </div>
             </div>
           </div>
