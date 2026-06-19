@@ -318,45 +318,50 @@ export function WelcomeScreen() {
   const hasRecent = recentCourses.length > 0;
 
   return (
-    <div className="flex-1 flex items-center justify-center p-6 sm:p-8 overflow-y-auto">
+    <div className="flex-1 flex items-center justify-center p-6 sm:p-12 overflow-y-auto">
       <div
-        className={`w-full animate-fade-in ${hasRecent ? 'max-w-2xl' : 'max-w-lg'}`}
+        className={`w-full animate-fade-in ${hasRecent ? 'max-w-2xl' : 'max-w-4xl'}`}
       >
         {/* Header section */}
-        <div className="text-center mb-8">
+        <div className="text-center mb-10 relative">
+          {/* Subtle background glow for empty state */}
+          {!hasRecent && (
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[120%] h-[150%] bg-accent/5 blur-[120px] rounded-[100%] pointer-events-none -z-10" />
+          )}
+          
           {/* Logo */}
-          <div className="mb-6 flex justify-center">
-            <div className="relative w-24 h-24 flex items-center justify-center drop-shadow-2xl hover:scale-105 transition-transform duration-300">
+          <div className="mb-8 flex justify-center">
+            <div className="relative w-28 h-28 flex items-center justify-center drop-shadow-2xl hover:scale-105 transition-transform duration-500">
               <Image 
                 src="/logo.png" 
                 alt="Foleyo Logo" 
                 fill 
-                sizes="96px"
+                sizes="112px"
                 className="object-contain" 
                 priority
               />
             </div>
           </div>
 
-          <h1 className="text-2xl sm:text-3xl font-bold text-foreground mb-2 tracking-tight">
-            {hasRecent ? 'Continue Learning' : 'Welcome to Foleyo'}
+          <h1 className={`font-bold text-foreground mb-4 tracking-tight ${hasRecent ? 'text-2xl sm:text-3xl' : 'text-4xl sm:text-5xl'}`}>
+            {hasRecent ? 'Continue Learning' : 'Your Premium Offline Learning Experience'}
           </h1>
-          <p className="text-foreground-muted text-sm sm:text-base leading-relaxed max-w-md mx-auto">
+          <p className={`text-foreground-muted mx-auto leading-relaxed ${hasRecent ? 'text-sm sm:text-base max-w-md' : 'text-lg sm:text-xl max-w-2xl'}`}>
             {hasRecent
               ? 'Pick up where you left off or open a new course folder.'
-              : 'Your offline course player. Load a course folder from your computer and start learning with a beautiful, distraction-free interface.'}
+              : 'Load any massive video course from your computer and start learning with a beautiful, distraction-free interface.'}
           </p>
         </div>
 
         {/* Open folder button */}
-        <div className="flex justify-center mb-8">
+        <div className="flex justify-center mb-12">
           <button
             onClick={openFolder}
             disabled={isLoading}
-            className={`group relative inline-flex items-center gap-2.5 font-semibold rounded-2xl shadow-xl transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:cursor-wait disabled:hover:scale-100 ${
+            className={`group relative inline-flex items-center gap-3 font-semibold rounded-2xl shadow-xl transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:cursor-wait disabled:hover:scale-100 ${
               hasRecent
                 ? 'px-5 py-3 text-sm bg-surface border border-border text-foreground hover:border-accent/50 hover:bg-surface-hover shadow-none'
-                : 'px-8 py-4 bg-gradient-to-r from-accent to-accent-hover text-white shadow-accent/25 hover:shadow-accent/40'
+                : 'px-10 py-5 text-lg bg-gradient-to-r from-accent to-accent-hover text-white shadow-accent/25 hover:shadow-accent/40 ring-1 ring-white/10'
             }`}
           >
             {isLoading && !resumingFolder ? (
@@ -367,27 +372,16 @@ export function WelcomeScreen() {
                   fill="none"
                   viewBox="0 0 24 24"
                 >
-                  <circle
-                    className="opacity-25"
-                    cx="12"
-                    cy="12"
-                    r="10"
-                    stroke="currentColor"
-                    strokeWidth="4"
-                  />
-                  <path
-                    className="opacity-75"
-                    fill="currentColor"
-                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-                  />
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                 </svg>
                 Loading course...
               </>
             ) : (
               <>
                 <svg
-                  width="20"
-                  height="20"
+                  width={hasRecent ? "20" : "24"}
+                  height={hasRecent ? "20" : "24"}
                   viewBox="0 0 24 24"
                   fill="none"
                   stroke="currentColor"
@@ -405,7 +399,7 @@ export function WelcomeScreen() {
 
             {/* Glow effect — only on the primary variant */}
             {!hasRecent && (
-              <div className="absolute inset-0 rounded-2xl bg-gradient-to-r from-accent to-accent-hover opacity-0 group-hover:opacity-20 blur-xl transition-opacity duration-300" />
+              <div className="absolute inset-0 rounded-2xl bg-gradient-to-r from-accent to-accent-hover opacity-0 group-hover:opacity-30 blur-2xl transition-opacity duration-500 -z-10" />
             )}
           </button>
         </div>
@@ -527,31 +521,79 @@ export function WelcomeScreen() {
             </div>
           </div>
         ) : (
-          /* Folder structure hint — only show when no recent courses */
-          <div className="text-left bg-surface rounded-xl border border-border p-5 max-w-md mx-auto">
-            <h3 className="text-xs font-semibold text-foreground-muted uppercase tracking-wider mb-3">
-              Expected folder structure
-            </h3>
-            <div className="font-mono text-xs text-foreground-subtle space-y-1">
-              <div className="text-foreground-muted">📁 MyCourse/</div>
-              <div className="ml-5 text-foreground-subtle">
-                📁 01_Introduction/
+          /* Modern Features Grid & Folder Hint */
+          <div className="animate-fade-in max-w-4xl mx-auto space-y-8">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Feature 1 */}
+              <div className="bg-surface/50 border border-border/50 rounded-2xl p-6 backdrop-blur-sm flex flex-col items-center text-center hover:bg-surface hover:border-border transition-colors">
+                <div className="w-12 h-12 rounded-full bg-accent/10 flex items-center justify-center mb-4">
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-accent">
+                    <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
+                    <line x1="8" y1="21" x2="16" y2="21"/>
+                    <line x1="12" y1="17" x2="12" y2="21"/>
+                  </svg>
+                </div>
+                <h3 className="font-semibold text-foreground mb-2">100% Local & Private</h3>
+                <p className="text-sm text-foreground-subtle leading-relaxed">No uploads. Streams multi-gigabyte courses instantly directly from your hard drive.</p>
               </div>
-              <div className="ml-10 text-accent/70">🎬 01_Welcome.mp4</div>
-              <div className="ml-10 text-accent/70">🎬 02_Setup.mp4</div>
-              <div className="ml-5 text-foreground-subtle">
-                📁 02_Core_Concepts/
+
+              {/* Feature 2 */}
+              <div className="bg-surface/50 border border-border/50 rounded-2xl p-6 backdrop-blur-sm flex flex-col items-center text-center hover:bg-surface hover:border-border transition-colors">
+                <div className="w-12 h-12 rounded-full bg-success/10 flex items-center justify-center mb-4">
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-success">
+                    <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+                  </svg>
+                </div>
+                <h3 className="font-semibold text-foreground mb-2">Progress Tracking</h3>
+                <p className="text-sm text-foreground-subtle leading-relaxed">Never lose your place. Foleyo automatically tracks your completed lessons and remembers your exact timestamp.</p>
               </div>
-              <div className="ml-10 text-accent/70">🎬 01_Basics.mp4</div>
-              <div className="ml-10 text-accent/70">🎬 02_Advanced.mp4</div>
+
+              {/* Feature 3 */}
+              <div className="bg-surface/50 border border-border/50 rounded-2xl p-6 backdrop-blur-sm flex flex-col items-center text-center hover:bg-surface hover:border-border transition-colors">
+                <div className="w-12 h-12 rounded-full bg-warning/10 flex items-center justify-center mb-4">
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-warning">
+                    <path d="M12 20h9"/>
+                    <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+                  </svg>
+                </div>
+                <h3 className="font-semibold text-foreground mb-2">Integrated Notes</h3>
+                <p className="text-sm text-foreground-subtle leading-relaxed">Take distraction-free Markdown notes side-by-side with your video. Export to .md anytime.</p>
+              </div>
+
+              {/* Feature 4 */}
+              <div className="bg-surface/50 border border-border/50 rounded-2xl p-6 backdrop-blur-sm flex flex-col items-center text-center hover:bg-surface hover:border-border transition-colors">
+                <div className="w-12 h-12 rounded-full bg-blue-500/10 flex items-center justify-center mb-4">
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-blue-500">
+                    <polygon points="5 3 19 12 5 21 5 3"/>
+                  </svg>
+                </div>
+                <h3 className="font-semibold text-foreground mb-2">Universal Playback</h3>
+                <p className="text-sm text-foreground-subtle leading-relaxed">Supports standard web media formats including .mp4, .webm, and .mkv with automatic subtitle detection.</p>
+              </div>
             </div>
-            <p className="text-[11px] text-foreground-subtle mt-3 leading-relaxed">
-              Subfolders are treated as modules, video files inside as lessons.
-              Supports <span className="text-foreground-muted">.mp4</span>,{' '}
-              <span className="text-foreground-muted">.webm</span>,{' '}
-              <span className="text-foreground-muted">.mov</span>, and{' '}
-              <span className="text-foreground-muted">.mkv</span> files.
-            </p>
+
+            {/* Folder structure hint - moved below features */}
+            <div className="bg-surface rounded-2xl border border-border p-6 mt-8 flex flex-col sm:flex-row items-center gap-6">
+              <div className="flex-1">
+                <h3 className="text-sm font-semibold text-foreground mb-2 flex items-center gap-2">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-accent">
+                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                  </svg>
+                  Expected Folder Structure
+                </h3>
+                <p className="text-sm text-foreground-subtle leading-relaxed mb-4">
+                  Organize your course folder simply. Any subfolders are treated as modules, and the video files inside them become lessons. Foleyo automatically builds a Netflix-like sidebar for you.
+                </p>
+              </div>
+              <div className="bg-background rounded-xl border border-border/50 p-4 font-mono text-[11px] text-foreground-subtle w-full sm:w-auto shadow-inner">
+                <div className="text-foreground-muted">📁 Complete_Web_Dev/</div>
+                <div className="ml-4 text-foreground-subtle">📁 01_HTML_Basics/</div>
+                <div className="ml-8 text-accent/70">🎬 01_Intro.mp4</div>
+                <div className="ml-8 text-accent/70">🎬 02_Elements.mp4</div>
+                <div className="ml-4 text-foreground-subtle">📁 02_CSS_Styling/</div>
+                <div className="ml-8 text-accent/70">🎬 01_Selectors.mp4</div>
+              </div>
+            </div>
           </div>
         )}
 
