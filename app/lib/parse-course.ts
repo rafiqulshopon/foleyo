@@ -1,4 +1,4 @@
-import { Course, Module, Lesson, VIDEO_EXTENSIONS } from '@/app/types';
+import { Course, Module, Lesson, VIDEO_EXTENSIONS, SubtitleInfo } from '@/app/types';
 
 /**
  * Clean a filename into a human-readable title.
@@ -62,13 +62,19 @@ export async function parseCourseDirectory(
   const modules: Module[] = [];
   const rootVideos: { name: string; handle: FileSystemFileHandle }[] = [];
   const subfolders: { name: string; handle: FileSystemDirectoryHandle }[] = [];
+  const rootSubtitles: { name: string; handle: FileSystemFileHandle }[] = [];
 
-  // First pass: collect subfolders and root-level video files
+  // First pass: collect subfolders, root-level video files, and subtitle files
   for await (const entry of dirHandle.values()) {
     if (entry.kind === 'directory') {
       subfolders.push({ name: entry.name, handle: entry });
-    } else if (entry.kind === 'file' && isVideoFile(entry.name)) {
-      rootVideos.push({ name: entry.name, handle: entry });
+    } else if (entry.kind === 'file') {
+      const lower = entry.name.toLowerCase();
+      if (isVideoFile(entry.name)) {
+        rootVideos.push({ name: entry.name, handle: entry });
+      } else if (lower.endsWith('.srt') || lower.endsWith('.vtt')) {
+        rootSubtitles.push({ name: entry.name, handle: entry });
+      }
     }
   }
 
@@ -82,10 +88,16 @@ export async function parseCourseDirectory(
     const folder = subfolders[i];
     const lessons: Lesson[] = [];
     const videoFiles: { name: string; handle: FileSystemFileHandle }[] = [];
+    const subtitleFiles: { name: string; handle: FileSystemFileHandle }[] = [];
 
     for await (const entry of folder.handle.values()) {
-      if (entry.kind === 'file' && isVideoFile(entry.name)) {
-        videoFiles.push({ name: entry.name, handle: entry });
+      if (entry.kind === 'file') {
+        const lower = entry.name.toLowerCase();
+        if (isVideoFile(entry.name)) {
+          videoFiles.push({ name: entry.name, handle: entry });
+        } else if (lower.endsWith('.srt') || lower.endsWith('.vtt')) {
+          subtitleFiles.push({ name: entry.name, handle: entry });
+        }
       }
     }
 
@@ -94,6 +106,22 @@ export async function parseCourseDirectory(
 
     for (let j = 0; j < videoFiles.length; j++) {
       const video = videoFiles[j];
+      const baseName = video.name.substring(0, video.name.lastIndexOf('.'));
+      
+      const subtitles: SubtitleInfo[] = subtitleFiles
+        .filter((sub) => sub.name.startsWith(baseName + '.'))
+        .map((sub) => {
+          const lower = sub.name.toLowerCase();
+          const format = lower.endsWith('.vtt') ? 'vtt' : 'srt';
+          // Extract language from suffix e.g. "base.en.srt" -> "en"
+          let language = 'Unknown';
+          const parts = sub.name.substring(baseName.length + 1, sub.name.lastIndexOf('.')).split('.');
+          if (parts.length > 0 && parts[0]) {
+            language = parts[0];
+          }
+          return { language, format, fileHandle: sub.handle };
+        });
+
       lessons.push({
         id: `${folder.name}/${video.name}`,
         title: cleanTitle(video.name, true),
@@ -102,6 +130,7 @@ export async function parseCourseDirectory(
         moduleId: folder.name,
         index: globalIndex++,
         localIndex: j,
+        subtitles: subtitles.length > 0 ? subtitles : undefined,
       });
     }
 
@@ -119,15 +148,33 @@ export async function parseCourseDirectory(
   // If there are root-level videos, create a single "Lessons" module
   if (rootVideos.length > 0) {
     rootVideos.sort((a, b) => sortByName(a.name, b.name));
-    const lessons: Lesson[] = rootVideos.map((video, j) => ({
-      id: `root/${video.name}`,
-      title: cleanTitle(video.name, true),
-      fileName: video.name,
-      fileHandle: video.handle,
-      moduleId: 'root',
-      index: globalIndex++,
-      localIndex: j,
-    }));
+    const lessons: Lesson[] = rootVideos.map((video, j) => {
+      const baseName = video.name.substring(0, video.name.lastIndexOf('.'));
+      
+      const subtitles: SubtitleInfo[] = rootSubtitles
+        .filter((sub) => sub.name.startsWith(baseName + '.'))
+        .map((sub) => {
+          const lower = sub.name.toLowerCase();
+          const format = lower.endsWith('.vtt') ? 'vtt' : 'srt';
+          let language = 'Unknown';
+          const parts = sub.name.substring(baseName.length + 1, sub.name.lastIndexOf('.')).split('.');
+          if (parts.length > 0 && parts[0]) {
+            language = parts[0];
+          }
+          return { language, format, fileHandle: sub.handle };
+        });
+
+      return {
+        id: `root/${video.name}`,
+        title: cleanTitle(video.name, true),
+        fileName: video.name,
+        fileHandle: video.handle,
+        moduleId: 'root',
+        index: globalIndex++,
+        localIndex: j,
+        subtitles: subtitles.length > 0 ? subtitles : undefined,
+      };
+    });
 
     modules.push({
       id: 'root',

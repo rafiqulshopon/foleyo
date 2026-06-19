@@ -1,5 +1,11 @@
 // Core data types for the course player
 
+export interface SubtitleInfo {
+  language: string; // e.g. 'en', 'es', or 'Unknown'
+  format: 'srt' | 'vtt';
+  fileHandle: FileSystemFileHandle;
+}
+
 export interface Lesson {
   id: string;
   title: string;
@@ -8,6 +14,7 @@ export interface Lesson {
   moduleId: string;
   index: number; // global index across all modules
   localIndex: number; // index within the module
+  subtitles?: SubtitleInfo[];
 }
 
 export interface Module {

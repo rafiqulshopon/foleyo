@@ -26,12 +26,20 @@ import {
   getDirectoryHandle,
   type RecentCourse,
 } from '@/app/lib/recent-courses-store';
+import { loadSubtitle } from '@/app/lib/subtitles';
+
+export interface SubtitleTrack {
+  src: string;
+  language: string;
+  label: string;
+}
 
 interface CourseContextType {
   // State
   course: Course | null;
   currentLesson: Lesson | null;
   videoUrl: string | null;
+  subtitleTracks: SubtitleTrack[];
   progress: CourseProgress;
   autoplay: boolean;
   sidebarOpen: boolean;
@@ -67,6 +75,7 @@ export function CourseProvider({ children }: { children: ReactNode }) {
   const [course, setCourse] = useState<Course | null>(null);
   const [currentLesson, setCurrentLesson] = useState<Lesson | null>(null);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
+  const [subtitleTracks, setSubtitleTracks] = useState<SubtitleTrack[]>([]);
   const [progress, setProgress] = useState<CourseProgress>(
     createEmptyProgress('')
   );
@@ -87,6 +96,10 @@ export function CourseProvider({ children }: { children: ReactNode }) {
       URL.revokeObjectURL(currentUrlRef.current);
       currentUrlRef.current = null;
     }
+    setSubtitleTracks((prev) => {
+      prev.forEach((track) => URL.revokeObjectURL(track.src));
+      return [];
+    });
   }, []);
 
   useEffect(() => {
@@ -126,6 +139,7 @@ export function CourseProvider({ children }: { children: ReactNode }) {
     setCourse(null);
     setCurrentLesson(null);
     setVideoUrl(null);
+    setSubtitleTracks([]);
     dirHandleRef.current = null;
     
     if (!isPopState) {
@@ -165,13 +179,52 @@ export function CourseProvider({ children }: { children: ReactNode }) {
     return course.modules.flatMap((m) => m.lessons);
   }, [course]);
 
-  // Load a video file and create object URL
+  // Load a video file, subtitles, and create object URLs
   const loadVideo = useCallback(
     async (lesson: Lesson): Promise<string> => {
       revokeUrl();
       const file = await lesson.fileHandle.getFile();
       const url = URL.createObjectURL(file);
       currentUrlRef.current = url;
+      
+      // Load subtitles if present
+      if (lesson.subtitles && lesson.subtitles.length > 0) {
+        try {
+          const tracks = await Promise.all(
+            lesson.subtitles.map(async (sub) => {
+              const src = await loadSubtitle(sub.fileHandle, sub.format);
+              
+              // Map simple languages to labels, fallback to uppercase
+              const labels: Record<string, string> = {
+                en: 'English',
+                es: 'Spanish',
+                fr: 'French',
+                de: 'German',
+                it: 'Italian',
+                pt: 'Portuguese',
+                ru: 'Russian',
+                zh: 'Chinese',
+                ja: 'Japanese',
+                ko: 'Korean',
+                ar: 'Arabic',
+                hi: 'Hindi',
+              };
+              
+              const label = labels[sub.language] || sub.language.toUpperCase();
+              
+              return {
+                src,
+                language: sub.language,
+                label: label === 'UNKNOWN' ? 'Default' : label,
+              };
+            })
+          );
+          setSubtitleTracks(tracks);
+        } catch (e) {
+          console.error('Failed to load subtitles', e);
+        }
+      }
+      
       return url;
     },
     [revokeUrl]
@@ -479,6 +532,7 @@ export function CourseProvider({ children }: { children: ReactNode }) {
         course,
         currentLesson,
         videoUrl,
+        subtitleTracks,
         progress,
         autoplay,
         sidebarOpen,

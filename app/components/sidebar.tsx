@@ -158,6 +158,16 @@ function ModuleItem({ module, notes }: { module: Module; notes: Record<string, s
                   </span>
                 )}
 
+                {/* CC badge */}
+                {lesson.subtitles && lesson.subtitles.length > 0 && (
+                  <span 
+                    className="shrink-0 text-[9px] font-bold px-1 py-0.5 rounded bg-surface border border-border/50 text-foreground-subtle"
+                    title="Subtitles available"
+                  >
+                    CC
+                  </span>
+                )}
+
                 {/* MKV warning badge */}
                 {isMkv && (
                   <span

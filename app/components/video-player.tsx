@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useCallback, useState } from 'react';
-import { MediaPlayer, MediaProvider, useMediaRemote, type MediaPlayerInstance } from '@vidstack/react';
+import { MediaPlayer, MediaProvider, Track, useMediaRemote, type MediaPlayerInstance } from '@vidstack/react';
 import {
   DefaultVideoLayout,
   defaultLayoutIcons,
@@ -22,6 +22,7 @@ export function VideoPlayer() {
     nextLesson,
     prevLesson,
     course,
+    subtitleTracks,
   } = useCourse();
 
   const playerRef = useRef<MediaPlayerInstance>(null);
@@ -37,6 +38,15 @@ export function VideoPlayer() {
       return !isNaN(savedSpeed) ? savedSpeed : 1;
     }
     return 1;
+  });
+
+  const ccEnabledRef = useRef<boolean>(true);
+  
+  // Initialize from localStorage only once on mount
+  useState(() => {
+    if (typeof window !== 'undefined') {
+      ccEnabledRef.current = localStorage.getItem('foleyo_cc_enabled') !== 'false';
+    }
   });
 
   // Restore position when lesson changes
@@ -125,13 +135,29 @@ export function VideoPlayer() {
             onCanPlay={handleCanPlay}
             onEnded={handleEnded}
             onRateChange={handleRateChange}
+            onTextTrackChange={(track) => {
+              const isEnabled = track != null;
+              ccEnabledRef.current = isEnabled;
+              localStorage.setItem('foleyo_cc_enabled', isEnabled.toString());
+            }}
             playbackRate={playbackRate}
             autoPlay
             className="w-full aspect-video"
             keyTarget="player"
             load="eager"
           >
-            <MediaProvider />
+            <MediaProvider>
+              {subtitleTracks.map((track) => (
+                <Track
+                  key={track.src}
+                  src={track.src}
+                  kind="subtitles"
+                  label={track.label}
+                  lang={track.language}
+                  default={ccEnabledRef.current && (track.language === 'en' || subtitleTracks.length === 1)}
+                />
+              ))}
+            </MediaProvider>
             <DefaultVideoLayout
               icons={defaultLayoutIcons}
             />
