@@ -65,16 +65,16 @@ function BrowserCheck() {
 }
 
 function CourseApp() {
-  const { course, hasMkvFiles, invalidLink } = useCourse();
-  const [mkvDismissed, setMkvDismissed] = useState(false);
+  const { course, hasUnsupportedFormat, invalidLink } = useCourse();
+  const [unsupportedDismissed, setUnsupportedDismissed] = useState(false);
 
   return (
     <div className="h-full flex flex-col">
       <BrowserCheck />
       <Header />
 
-      {/* MKV banner */}
-      {hasMkvFiles && !mkvDismissed && course && (
+      {/* Unsupported Format banner */}
+      {hasUnsupportedFormat && !unsupportedDismissed && course && (
         <div className="bg-warning/10 border-b border-warning/20 px-4 py-2 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2 text-xs text-warning">
             <svg
@@ -92,12 +92,11 @@ function CourseApp() {
               <line x1="12" y1="17" x2="12.01" y2="17" />
             </svg>
             <span>
-              Some lessons are MKV files. They may not play if they use H.265/HEVC
-              codecs. Consider converting to MP4 (H.264) for best compatibility.
+              Some lessons are MKV or TS files. They may not play in your browser if they use unsupported codecs (e.g. H.265). Consider converting to MP4 (H.264).
             </span>
           </div>
           <button
-            onClick={() => setMkvDismissed(true)}
+            onClick={() => setUnsupportedDismissed(true)}
             className="text-warning/70 hover:text-warning transition-colors p-1"
           >
             <svg

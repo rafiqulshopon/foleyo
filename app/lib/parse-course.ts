@@ -51,58 +51,97 @@ function sortByName(a: string, b: string): number {
   return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
 }
 
+interface ScannedFolder {
+  path: string[];
+  handle: FileSystemDirectoryHandle;
+  videoFiles: { name: string; handle: FileSystemFileHandle }[];
+  subtitleFiles: { name: string; handle: FileSystemFileHandle }[];
+}
+
+async function scanDirectory(
+  dirHandle: FileSystemDirectoryHandle,
+  currentPath: string[] = []
+): Promise<ScannedFolder[]> {
+  const folders: ScannedFolder[] = [];
+  const videoFiles: { name: string; handle: FileSystemFileHandle }[] = [];
+  const subtitleFiles: { name: string; handle: FileSystemFileHandle }[] = [];
+  const subDirs: { name: string; handle: FileSystemDirectoryHandle }[] = [];
+
+  for await (const entry of dirHandle.values()) {
+    if (entry.kind === 'file') {
+      const lower = entry.name.toLowerCase();
+      if (isVideoFile(entry.name)) {
+        videoFiles.push({ name: entry.name, handle: entry });
+      } else if (lower.endsWith('.srt') || lower.endsWith('.vtt')) {
+        subtitleFiles.push({ name: entry.name, handle: entry });
+      }
+    } else if (entry.kind === 'directory') {
+      // Ignore hidden folders like .git or .DS_Store
+      if (!entry.name.startsWith('.')) {
+        subDirs.push({ name: entry.name, handle: entry });
+      }
+    }
+  }
+
+  if (videoFiles.length > 0) {
+    folders.push({
+      path: currentPath,
+      handle: dirHandle,
+      videoFiles,
+      subtitleFiles,
+    });
+  }
+
+  for (const subDir of subDirs) {
+    const subFolders = await scanDirectory(subDir.handle, [...currentPath, subDir.name]);
+    folders.push(...subFolders);
+  }
+
+  return folders;
+}
+
 /**
- * Parse a directory handle into a Course structure.
- * Top-level subfolders = modules, video files inside = lessons.
- * Also handles flat structure (videos directly in root = single module).
+ * Parse a directory handle into a Course structure recursively.
+ * Sub-folders become modules, video files inside = lessons.
  */
 export async function parseCourseDirectory(
   dirHandle: FileSystemDirectoryHandle
 ): Promise<Course> {
   const modules: Module[] = [];
-  const rootVideos: { name: string; handle: FileSystemFileHandle }[] = [];
-  const subfolders: { name: string; handle: FileSystemDirectoryHandle }[] = [];
-  const rootSubtitles: { name: string; handle: FileSystemFileHandle }[] = [];
-
-  // First pass: collect subfolders, root-level video files, and subtitle files
-  for await (const entry of dirHandle.values()) {
-    if (entry.kind === 'directory') {
-      subfolders.push({ name: entry.name, handle: entry });
-    } else if (entry.kind === 'file') {
-      const lower = entry.name.toLowerCase();
-      if (isVideoFile(entry.name)) {
-        rootVideos.push({ name: entry.name, handle: entry });
-      } else if (lower.endsWith('.srt') || lower.endsWith('.vtt')) {
-        rootSubtitles.push({ name: entry.name, handle: entry });
-      }
+  
+  const allFolders = await scanDirectory(dirHandle);
+  
+  // Sort folders by path length, then by each path component
+  allFolders.sort((a, b) => {
+    // Root level videos come first
+    if (a.path.length === 0 && b.path.length > 0) return -1;
+    if (a.path.length > 0 && b.path.length === 0) return 1;
+    
+    const minLen = Math.min(a.path.length, b.path.length);
+    for (let i = 0; i < minLen; i++) {
+      const cmp = sortByName(a.path[i], b.path[i]);
+      if (cmp !== 0) return cmp;
     }
-  }
-
-  // Sort subfolders
-  subfolders.sort((a, b) => sortByName(a.name, b.name));
+    return a.path.length - b.path.length;
+  });
 
   let globalIndex = 0;
 
-  // Process subfolders as modules
-  for (let i = 0; i < subfolders.length; i++) {
-    const folder = subfolders[i];
-    const lessons: Lesson[] = [];
-    const videoFiles: { name: string; handle: FileSystemFileHandle }[] = [];
-    const subtitleFiles: { name: string; handle: FileSystemFileHandle }[] = [];
+  for (let i = 0; i < allFolders.length; i++) {
+    const folder = allFolders[i];
+    const { path, videoFiles, subtitleFiles } = folder;
+    const isRoot = path.length === 0;
+    
+    // Create module ID and Title
+    const moduleId = isRoot ? 'root' : path.join('/');
+    // e.g. ["Module 1", "Sub 2"] -> "Module 1 - Sub 2"
+    const moduleTitle = isRoot ? 'Course Content' : path.map(p => cleanTitle(p)).join(' - ');
+    const folderName = isRoot ? '' : path[path.length - 1];
 
-    for await (const entry of folder.handle.values()) {
-      if (entry.kind === 'file') {
-        const lower = entry.name.toLowerCase();
-        if (isVideoFile(entry.name)) {
-          videoFiles.push({ name: entry.name, handle: entry });
-        } else if (lower.endsWith('.srt') || lower.endsWith('.vtt')) {
-          subtitleFiles.push({ name: entry.name, handle: entry });
-        }
-      }
-    }
-
-    // Sort video files
+    // Sort video files inside this folder
     videoFiles.sort((a, b) => sortByName(a.name, b.name));
+    
+    const lessons: Lesson[] = [];
 
     for (let j = 0; j < videoFiles.length; j++) {
       const video = videoFiles[j];
@@ -113,7 +152,6 @@ export async function parseCourseDirectory(
         .map((sub) => {
           const lower = sub.name.toLowerCase();
           const format: 'vtt' | 'srt' = lower.endsWith('.vtt') ? 'vtt' : 'srt';
-          // Extract language from suffix e.g. "base.en.srt" -> "en"
           let language = 'Unknown';
           const parts = sub.name.substring(baseName.length + 1, sub.name.lastIndexOf('.')).split('.');
           if (parts.length > 0 && parts[0]) {
@@ -133,65 +171,23 @@ export async function parseCourseDirectory(
       const subtitles: SubtitleInfo[] = Array.from(subtitlesMap.values());
 
       lessons.push({
-        id: `${folder.name}/${video.name}`,
+        id: `${moduleId}/${video.name}`,
         title: cleanTitle(video.name, true),
         fileName: video.name,
         fileHandle: video.handle,
-        moduleId: folder.name,
+        moduleId,
         index: globalIndex++,
         localIndex: j,
         subtitles: subtitles.length > 0 ? subtitles : undefined,
       });
     }
-
-    if (lessons.length > 0) {
-      modules.push({
-        id: folder.name,
-        title: cleanTitle(folder.name),
-        folderName: folder.name,
-        lessons,
-        index: i,
-      });
-    }
-  }
-
-  // If there are root-level videos, create a single "Lessons" module
-  if (rootVideos.length > 0) {
-    rootVideos.sort((a, b) => sortByName(a.name, b.name));
-    const lessons: Lesson[] = rootVideos.map((video, j) => {
-      const baseName = video.name.substring(0, video.name.lastIndexOf('.'));
-      
-      const subtitles: SubtitleInfo[] = rootSubtitles
-        .filter((sub) => sub.name.startsWith(baseName + '.'))
-        .map((sub) => {
-          const lower = sub.name.toLowerCase();
-          const format = lower.endsWith('.vtt') ? 'vtt' : 'srt';
-          let language = 'Unknown';
-          const parts = sub.name.substring(baseName.length + 1, sub.name.lastIndexOf('.')).split('.');
-          if (parts.length > 0 && parts[0]) {
-            language = parts[0];
-          }
-          return { language, format, fileHandle: sub.handle };
-        });
-
-      return {
-        id: `root/${video.name}`,
-        title: cleanTitle(video.name, true),
-        fileName: video.name,
-        fileHandle: video.handle,
-        moduleId: 'root',
-        index: globalIndex++,
-        localIndex: j,
-        subtitles: subtitles.length > 0 ? subtitles : undefined,
-      };
-    });
 
     modules.push({
-      id: 'root',
-      title: 'Lessons',
-      folderName: '',
+      id: moduleId,
+      title: moduleTitle,
+      folderName,
       lessons,
-      index: modules.length,
+      index: i,
     });
   }
 

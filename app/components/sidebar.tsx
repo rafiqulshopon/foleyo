@@ -79,7 +79,8 @@ function ModuleItem({ module, notes }: { module: Module; notes: Record<string, s
           {module.lessons.map((lesson) => {
             const isCurrentLesson = currentLesson?.id === lesson.id;
             const lessonProgress = getLessonProgress(progress, lesson.id);
-            const isMkv = lesson.fileName.toLowerCase().endsWith('.mkv');
+            const isUnsupported = lesson.fileName.toLowerCase().endsWith('.mkv') || lesson.fileName.toLowerCase().endsWith('.ts');
+            const formatStr = lesson.fileName.split('.').pop()?.toUpperCase();
 
             return (
               <div
@@ -168,13 +169,13 @@ function ModuleItem({ module, notes }: { module: Module; notes: Record<string, s
                   </span>
                 )}
 
-                {/* MKV warning badge */}
-                {isMkv && (
+                {/* Unsupported format warning badge */}
+                {isUnsupported && (
                   <span
                     className="shrink-0 text-[9px] font-mono px-1 py-0.5 rounded bg-warning/15 text-warning"
-                    title="MKV files may not play with all codecs"
+                    title={`${formatStr} files may not play with all codecs`}
                   >
-                    MKV
+                    {formatStr}
                   </span>
                 )}
               </div>
@@ -187,7 +188,7 @@ function ModuleItem({ module, notes }: { module: Module; notes: Record<string, s
 }
 
 export function Sidebar() {
-  const { course, sidebarOpen } = useCourse();
+  const { course, sidebarOpen, refreshCourse, isLoading } = useCourse();
   const notes = useCourseNotes(course?.name);
 
   if (!course) return null;
@@ -199,15 +200,38 @@ export function Sidebar() {
       }`}
     >
       <div className="flex-1 overflow-y-auto p-3 min-w-[288px]">
-        {/* Course title */}
-        <div className="px-3 py-2 mb-2">
-          <h2 className="text-sm font-semibold text-foreground truncate">
-            {course.name}
-          </h2>
-          <p className="text-xs text-foreground-subtle mt-0.5">
-            {course.modules.length} module{course.modules.length !== 1 ? 's' : ''} ·{' '}
-            {course.totalLessons} lesson{course.totalLessons !== 1 ? 's' : ''}
-          </p>
+        {/* Course title & Refresh */}
+        <div className="px-3 py-2 mb-2 flex items-start justify-between gap-2">
+          <div className="min-w-0 flex-1">
+            <h2 className="text-sm font-semibold text-foreground truncate" title={course.name}>
+              {course.name}
+            </h2>
+            <p className="text-xs text-foreground-subtle mt-0.5">
+              {course.modules.length} module{course.modules.length !== 1 ? 's' : ''} ·{' '}
+              {course.totalLessons} lesson{course.totalLessons !== 1 ? 's' : ''}
+            </p>
+          </div>
+          <button 
+            onClick={refreshCourse}
+            disabled={isLoading}
+            className={`shrink-0 p-1.5 rounded-lg text-foreground-muted hover:text-foreground hover:bg-surface-hover transition-colors ${isLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
+            title="Refresh course folder to detect new downloads"
+          >
+            <svg 
+              width="14" 
+              height="14" 
+              viewBox="0 0 24 24" 
+              fill="none" 
+              stroke="currentColor" 
+              strokeWidth="2" 
+              strokeLinecap="round" 
+              strokeLinejoin="round"
+              className={isLoading ? 'animate-spin' : ''}
+            >
+              <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
+              <path d="M21 3v5h-5" />
+            </svg>
+          </button>
         </div>
 
         {/* Module list */}

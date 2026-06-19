@@ -46,7 +46,7 @@ export interface CourseProgress {
 }
 
 // Supported video extensions
-export const VIDEO_EXTENSIONS = ['.mp4', '.mkv', '.webm', '.mov'] as const;
+export const VIDEO_EXTENSIONS = ['.mp4', '.mkv', '.webm', '.mov', '.ts'] as const;
 
 // MKV warning codecs
 export const MKV_WARNING =

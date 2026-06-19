@@ -48,7 +48,7 @@ interface CourseContextType {
   sidebarOpen: boolean;
   isLoading: boolean;
   error: string | null;
-  hasMkvFiles: boolean;
+  hasUnsupportedFormat: boolean;
   requiresPermission: boolean;
   invalidLink: boolean;
 
@@ -66,6 +66,7 @@ interface CourseContextType {
   getModuleStats: (moduleId: string) => { completed: number; total: number; percentage: number };
   getOverallStats: () => { completed: number; total: number; percentage: number };
   closeCourse: () => void;
+  refreshCourse: () => Promise<void>;
   grantPermission: () => Promise<void>;
 }
 
@@ -89,7 +90,7 @@ export function CourseProvider({ children }: { children: ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [hasMkvFiles, setHasMkvFiles] = useState(false);
+  const [hasUnsupportedFormat, setHasUnsupportedFormat] = useState(false);
   const [requiresPermission, setRequiresPermission] = useState(false);
   const [invalidLink, setInvalidLink] = useState(false);
 
@@ -261,10 +262,13 @@ export function CourseProvider({ children }: { children: ReactNode }) {
       dirHandleRef.current = dirHandle;
 
       // Check for MKV files
-      const hasMkv = parsedCourse.modules.some((m) =>
-        m.lessons.some((l) => l.fileName.toLowerCase().endsWith('.mkv'))
+      const hasUnsupported = parsedCourse.modules.some((m) =>
+        m.lessons.some((l) => {
+          const lower = l.fileName.toLowerCase();
+          return lower.endsWith('.mkv') || lower.endsWith('.ts');
+        })
       );
-      setHasMkvFiles(hasMkv);
+      setHasUnsupportedFormat(hasUnsupported);
 
       setCourse(parsedCourse);
 
@@ -446,6 +450,29 @@ export function CourseProvider({ children }: { children: ReactNode }) {
     [loadVideo]
   );
 
+  // Refresh course to detect new files
+  const refreshCourse = useCallback(async () => {
+    if (!dirHandleRef.current || !course) return;
+    setIsLoading(true);
+    try {
+      const parsedCourse = await parseCourseDirectory(dirHandleRef.current);
+      await saveCourseCache(dirHandleRef.current.name, parsedCourse);
+      setCourse(parsedCourse);
+      
+      if (currentLesson) {
+        const allLessons = parsedCourse.modules.flatMap(m => m.lessons);
+        const newLessonRef = allLessons.find(l => l.id === currentLesson.id);
+        if (newLessonRef) {
+          setCurrentLesson(newLessonRef);
+        }
+      }
+    } catch (e) {
+      console.error('Failed to refresh course:', e);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [course, currentLesson]);
+
   // Navigate to next lesson
   const nextLesson = useCallback(() => {
     if (!currentLesson || !course) return;
@@ -608,10 +635,13 @@ export function CourseProvider({ children }: { children: ReactNode }) {
 
       dirHandleRef.current = dirHandle;
       
-      const hasMkv = courseCache.modules.some((m) =>
-        m.lessons.some((l) => l.fileName.toLowerCase().endsWith('.mkv'))
+      const hasUnsupported = courseCache.modules.some((m) =>
+        m.lessons.some((l) => {
+          const lower = l.fileName.toLowerCase();
+          return lower.endsWith('.mkv') || lower.endsWith('.ts');
+        })
       );
-      setHasMkvFiles(hasMkv);
+      setHasUnsupportedFormat(hasUnsupported);
       setCourse(courseCache);
 
       let courseProgress = loadProgress(courseCache.name);
@@ -645,7 +675,7 @@ export function CourseProvider({ children }: { children: ReactNode }) {
         sidebarOpen,
         isLoading,
         error,
-        hasMkvFiles,
+        hasUnsupportedFormat,
         requiresPermission,
         invalidLink,
         openFolder,
@@ -661,6 +691,7 @@ export function CourseProvider({ children }: { children: ReactNode }) {
         getModuleStats,
         getOverallStats,
         closeCourse,
+        refreshCourse,
         grantPermission,
       }}
     >
