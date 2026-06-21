@@ -5,6 +5,16 @@ import { useTheme } from '@/app/context/theme-context';
 import { useState } from 'react';
 import Image from 'next/image';
 
+function formatDuration(totalSeconds: number): string {
+  if (totalSeconds <= 0) return '0m';
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  if (hours > 0) {
+    return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
+  }
+  return `${minutes}m`;
+}
+
 function ThemeToggle() {
   const { theme, toggleTheme } = useTheme();
   const [animating, setAnimating] = useState(false);
@@ -72,11 +82,13 @@ export function Header() {
     toggleAutoplay,
     toggleSidebar,
     getOverallStats,
+    getWatchTimeStats,
     openFolder,
     closeCourse,
   } = useCourse();
 
   const stats = getOverallStats();
+  const watchStats = getWatchTimeStats();
 
   return (
     <header className="h-14 border-b border-border flex items-center justify-between px-4 bg-surface/80 backdrop-blur-md z-20 shrink-0">
@@ -152,16 +164,32 @@ export function Header() {
           <>
             {/* Progress stats */}
             <div className="hidden sm:flex items-center gap-3 mr-1">
-              <div className="flex items-center gap-2">
-                <div className="w-32 h-1.5 bg-border rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-gradient-to-r from-accent to-accent-hover rounded-full transition-all duration-500 ease-out"
-                    style={{ width: `${stats.percentage}%` }}
-                  />
+              <div className="flex flex-col gap-1">
+                <div className="flex items-center gap-2">
+                  <div className="w-32 h-1.5 bg-border rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-gradient-to-r from-accent to-accent-hover rounded-full transition-all duration-500 ease-out"
+                      style={{ width: `${stats.percentage}%` }}
+                    />
+                  </div>
+                  <span className="text-xs text-foreground-muted whitespace-nowrap">
+                    {stats.completed} / {stats.total} lessons · {stats.percentage}%
+                  </span>
                 </div>
-                <span className="text-xs text-foreground-muted whitespace-nowrap">
-                  {stats.completed} / {stats.total} lessons · {stats.percentage}%
-                </span>
+                {watchStats.totalSeconds > 0 && (
+                  <div className="flex items-center gap-1.5">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-foreground-subtle shrink-0">
+                      <circle cx="12" cy="12" r="10" />
+                      <polyline points="12 6 12 12 16 14" />
+                    </svg>
+                    <span className="text-[11px] text-foreground-subtle whitespace-nowrap">
+                      {formatDuration(watchStats.watchedSeconds)} / {formatDuration(watchStats.totalSeconds)} · {watchStats.watchedPercentage}%
+                      {watchStats.remainingSeconds > 0 && (
+                        <span className="text-foreground-muted"> · {formatDuration(watchStats.remainingSeconds)} left</span>
+                      )}
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
 

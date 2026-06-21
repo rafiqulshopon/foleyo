@@ -65,6 +65,8 @@ interface CourseContextType {
   onVideoEnded: () => void;
   getModuleStats: (moduleId: string) => { completed: number; total: number; percentage: number };
   getOverallStats: () => { completed: number; total: number; percentage: number };
+  getWatchTimeStats: () => { totalSeconds: number; watchedSeconds: number; remainingSeconds: number; watchedPercentage: number };
+  setLessonDuration: (lessonId: string, duration: number) => void;
   closeCourse: () => void;
   refreshCourse: () => Promise<void>;
   grantPermission: () => Promise<void>;
@@ -93,6 +95,7 @@ export function CourseProvider({ children }: { children: ReactNode }) {
   const [hasUnsupportedFormat, setHasUnsupportedFormat] = useState(false);
   const [requiresPermission, setRequiresPermission] = useState(false);
   const [invalidLink, setInvalidLink] = useState(false);
+  const [lessonDurations, setLessonDurations] = useState<Record<string, number>>({});
 
   // Track current directory handle for saving to recent courses
   const dirHandleRef = useRef<FileSystemDirectoryHandle | null>(null);
@@ -588,6 +591,144 @@ export function CourseProvider({ children }: { children: ReactNode }) {
     return getCompletionStats(progress, allIds);
   }, [course, progress]);
 
+  // Set duration for a lesson (called from video player when metadata loads)
+  const setLessonDuration = useCallback((lessonId: string, duration: number) => {
+    if (!duration || !isFinite(duration) || duration <= 0) return;
+    setLessonDurations(prev => {
+      // Only update if value changed to avoid unnecessary re-renders
+      if (prev[lessonId] === Math.round(duration)) return prev;
+      return { ...prev, [lessonId]: Math.round(duration) };
+    });
+  }, []);
+
+  // Get watch time stats across all lessons
+  const getWatchTimeStats = useCallback(() => {
+    if (!course) return { totalSeconds: 0, watchedSeconds: 0, remainingSeconds: 0, watchedPercentage: 0 };
+
+    const allLessons = course.modules.flatMap(m => m.lessons);
+    let totalSeconds = 0;
+    let watchedSeconds = 0;
+
+    for (const lesson of allLessons) {
+      const dur = lessonDurations[lesson.id];
+      if (dur && dur > 0) {
+        totalSeconds += dur;
+        const lessonProg = progress.lessons[lesson.id];
+        if (lessonProg?.completed) {
+          // Completed lessons count as fully watched
+          watchedSeconds += dur;
+        } else if (lessonProg?.lastPosition > 0) {
+          // Partially watched
+          watchedSeconds += Math.min(lessonProg.lastPosition, dur);
+        }
+      }
+    }
+
+    const remainingSeconds = Math.max(0, totalSeconds - watchedSeconds);
+    const watchedPercentage = totalSeconds > 0 ? Math.round((watchedSeconds / totalSeconds) * 100) : 0;
+
+    return { totalSeconds, watchedSeconds, remainingSeconds, watchedPercentage };
+  }, [course, lessonDurations, progress]);
+
+  // Background scan: extract duration metadata from ALL videos in the course
+  useEffect(() => {
+    if (!course) return;
+
+    let cancelled = false;
+    const blobUrls: string[] = [];
+
+    async function scanDurations() {
+      const allLessons = course!.modules.flatMap(m => m.lessons);
+
+      // Process in small batches to avoid overwhelming the browser
+      const BATCH_SIZE = 3;
+      for (let i = 0; i < allLessons.length; i += BATCH_SIZE) {
+        if (cancelled) break;
+
+        const batch = allLessons.slice(i, i + BATCH_SIZE);
+        await Promise.all(
+          batch.map(async (lesson) => {
+            if (cancelled) return;
+
+            // Skip if we already have the duration
+            if (lessonDurations[lesson.id]) return;
+
+            try {
+              const file = await lesson.fileHandle.getFile();
+              const url = URL.createObjectURL(file);
+              blobUrls.push(url);
+
+              const duration = await new Promise<number>((resolve, reject) => {
+                const video = document.createElement('video');
+                video.preload = 'metadata';
+                video.muted = true;
+
+                const cleanup = () => {
+                  video.removeAttribute('src');
+                  video.load(); // release resources
+                };
+
+                video.onloadedmetadata = () => {
+                  const dur = video.duration;
+                  cleanup();
+                  if (dur && isFinite(dur) && dur > 0) {
+                    resolve(dur);
+                  } else {
+                    reject(new Error('Invalid duration'));
+                  }
+                };
+
+                video.onerror = () => {
+                  cleanup();
+                  reject(new Error('Failed to load metadata'));
+                };
+
+                // Timeout after 10s per video
+                const timer = setTimeout(() => {
+                  cleanup();
+                  reject(new Error('Metadata timeout'));
+                }, 10000);
+
+                video.onloadedmetadata = () => {
+                  clearTimeout(timer);
+                  const dur = video.duration;
+                  cleanup();
+                  if (dur && isFinite(dur) && dur > 0) {
+                    resolve(dur);
+                  } else {
+                    reject(new Error('Invalid duration'));
+                  }
+                };
+
+                video.src = url;
+              });
+
+              if (!cancelled) {
+                setLessonDurations(prev => ({
+                  ...prev,
+                  [lesson.id]: Math.round(duration),
+                }));
+              }
+            } catch {
+              // Silently skip videos that fail metadata extraction
+            }
+          })
+        );
+      }
+    }
+
+    scanDurations();
+
+    return () => {
+      cancelled = true;
+      // Clean up any remaining blob URLs
+      blobUrls.forEach(url => {
+        try { URL.revokeObjectURL(url); } catch { /* ignore */ }
+      });
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [course]);
+
   const grantPermission = useCallback(async () => {
     if (!dirHandleRef.current || !course) return;
     try {
@@ -690,6 +831,8 @@ export function CourseProvider({ children }: { children: ReactNode }) {
         onVideoEnded,
         getModuleStats,
         getOverallStats,
+        getWatchTimeStats,
+        setLessonDuration,
         closeCourse,
         refreshCourse,
         grantPermission,

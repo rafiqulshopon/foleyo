@@ -25,6 +25,7 @@ export function VideoPlayer() {
     subtitleTracks,
     requiresPermission,
     grantPermission,
+    setLessonDuration,
   } = useCourse();
 
   const playerRef = useRef<MediaPlayerInstance>(null);
@@ -145,6 +146,13 @@ export function VideoPlayer() {
     // Explicitly set the remote playback rate as Vidstack doesn't automatically sync the prop
     if (remote) {
       remote.changePlaybackRate(playbackRate);
+    }
+    // Report video duration to the context for watch time stats
+    if (currentLesson && playerRef.current) {
+      const dur = playerRef.current.duration;
+      if (dur && isFinite(dur) && dur > 0) {
+        setLessonDuration(currentLesson.id, dur);
+      }
     }
     // Re-enter fullscreen if we were in fullscreen before the lesson changed
     if (wasFullscreenRef.current && playerContainerRef.current) {
