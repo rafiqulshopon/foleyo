@@ -183,7 +183,7 @@ export function Header() {
                       <polyline points="12 6 12 12 16 14" />
                     </svg>
                     <span className="text-[11px] text-foreground-subtle whitespace-nowrap">
-                      {formatDuration(watchStats.watchedSeconds)} / {formatDuration(watchStats.totalSeconds)} · {watchStats.watchedPercentage}%
+                      {formatDuration(watchStats.watchedSeconds)} / {formatDuration(watchStats.totalSeconds)}
                       {watchStats.remainingSeconds > 0 && (
                         <span className="text-foreground-muted"> · {formatDuration(watchStats.remainingSeconds)} left</span>
                       )}
