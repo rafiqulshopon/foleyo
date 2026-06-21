@@ -4,7 +4,7 @@ import { CourseProvider, useCourse } from '@/app/context/course-context';
 import { ThemeProvider } from '@/app/context/theme-context';
 import { Header } from '@/app/components/header';
 import { Sidebar } from '@/app/components/sidebar';
-import { VideoPlayer } from '@/app/components/video-player';
+import { VideoPlayer } from '@/app/components/video-player-wrapper';
 import { WelcomeScreen } from '@/app/components/welcome-screen';
 import { useEffect, useState } from 'react';
 

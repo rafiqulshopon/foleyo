@@ -28,7 +28,9 @@ export function VideoPlayer() {
   } = useCourse();
 
   const playerRef = useRef<MediaPlayerInstance>(null);
+  const playerContainerRef = useRef<HTMLDivElement>(null);
   const hasRestoredRef = useRef<string | null>(null);
+  const wasFullscreenRef = useRef(false);
   const [isReady, setIsReady] = useState(false);
   const { note, updateNote, isSaved } = useNotes(course?.name, currentLesson?.id);
   const courseNotes = useCourseNotes(course?.name);
@@ -109,9 +111,25 @@ export function VideoPlayer() {
 
   // Reset restored flag when lesson changes
   useEffect(() => {
+    // Before resetting, check if we're currently in fullscreen
+    if (document.fullscreenElement) {
+      wasFullscreenRef.current = true;
+    }
     setIsReady(false);
     hasRestoredRef.current = null;
   }, [videoUrl]);
+
+  // Track fullscreen state changes from the browser
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      // If user manually exited fullscreen (e.g. pressed Esc), clear the flag
+      if (!document.fullscreenElement) {
+        wasFullscreenRef.current = false;
+      }
+    };
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, []);
 
   const remote = useMediaRemote(playerRef);
 
@@ -127,6 +145,13 @@ export function VideoPlayer() {
     // Explicitly set the remote playback rate as Vidstack doesn't automatically sync the prop
     if (remote) {
       remote.changePlaybackRate(playbackRate);
+    }
+    // Re-enter fullscreen if we were in fullscreen before the lesson changed
+    if (wasFullscreenRef.current && playerContainerRef.current) {
+      wasFullscreenRef.current = false;
+      playerContainerRef.current.requestFullscreen?.().catch(() => {
+        // Fullscreen request may fail if not triggered by user gesture
+      });
     }
   }, [remote, playbackRate]);
 
@@ -172,7 +197,7 @@ export function VideoPlayer() {
         </div>
 
         {/* Video player */}
-        <div className="rounded-xl overflow-hidden bg-black shadow-2xl shadow-black/50 ring-1 ring-white/5 relative aspect-video">
+        <div ref={playerContainerRef} className="rounded-xl overflow-hidden bg-black shadow-2xl shadow-black/50 ring-1 ring-white/5 relative aspect-video">
           {requiresPermission ? (
             <div 
               className="absolute inset-0 flex items-center justify-center bg-black/80 cursor-pointer group hover:bg-black/70 transition-colors"
@@ -196,7 +221,6 @@ export function VideoPlayer() {
             </div>
           ) : (
             <MediaPlayer
-              key={currentLesson?.id}
               ref={playerRef}
               src={{ src: videoUrl, type: 'video/mp4' }}
               crossOrigin=""
