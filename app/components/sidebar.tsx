@@ -200,9 +200,9 @@ export function Sidebar() {
           sidebarOpen ? 'w-72' : 'w-0'
         }`}
       >
-        <div className="flex-1 overflow-y-auto p-3 min-w-[288px]">
-          {/* Course title & controls */}
-          <div className="px-3 py-2 mb-2 flex items-start justify-between gap-2">
+        {/* Fixed header — not scrollable */}
+        <div className="px-3 pt-3 pb-1 min-w-[288px] border-b border-border/50 shrink-0">
+          <div className="px-3 py-2 flex items-start justify-between gap-2">
             <div className="min-w-0 flex-1">
               <h2 className="text-sm font-semibold text-foreground truncate" title={course.name}>
                 {course.name}
@@ -247,8 +247,10 @@ export function Sidebar() {
               </button>
             </div>
           </div>
+        </div>
 
-          {/* Module list */}
+        {/* Scrollable module list */}
+        <div className="flex-1 overflow-y-auto p-3 min-w-[288px]">
           <nav>
             {course.modules.map((module) => (
               <ModuleItem key={module.id} module={module} notes={notes} />
