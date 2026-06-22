@@ -188,59 +188,87 @@ function ModuleItem({ module, notes }: { module: Module; notes: Record<string, s
 }
 
 export function Sidebar() {
-  const { course, sidebarOpen, refreshCourse, isLoading } = useCourse();
+  const { course, sidebarOpen, toggleSidebar, refreshCourse, isLoading } = useCourse();
   const notes = useCourseNotes(course?.name);
 
   if (!course) return null;
 
   return (
-    <aside
-      className={`sidebar-transition border-r border-border bg-surface/50 backdrop-blur-sm flex flex-col shrink-0 overflow-hidden ${
-        sidebarOpen ? 'w-72' : 'w-0'
-      }`}
-    >
-      <div className="flex-1 overflow-y-auto p-3 min-w-[288px]">
-        {/* Course title & Refresh */}
-        <div className="px-3 py-2 mb-2 flex items-start justify-between gap-2">
-          <div className="min-w-0 flex-1">
-            <h2 className="text-sm font-semibold text-foreground truncate" title={course.name}>
-              {course.name}
-            </h2>
-            <p className="text-xs text-foreground-subtle mt-0.5">
-              {course.modules.length} module{course.modules.length !== 1 ? 's' : ''} ·{' '}
-              {course.totalLessons} lesson{course.totalLessons !== 1 ? 's' : ''}
-            </p>
+    <div className="relative flex shrink-0">
+      <aside
+        className={`sidebar-transition border-r border-border bg-surface/50 backdrop-blur-sm flex flex-col shrink-0 overflow-hidden ${
+          sidebarOpen ? 'w-72' : 'w-0'
+        }`}
+      >
+        <div className="flex-1 overflow-y-auto p-3 min-w-[288px]">
+          {/* Course title & controls */}
+          <div className="px-3 py-2 mb-2 flex items-start justify-between gap-2">
+            <div className="min-w-0 flex-1">
+              <h2 className="text-sm font-semibold text-foreground truncate" title={course.name}>
+                {course.name}
+              </h2>
+              <p className="text-xs text-foreground-subtle mt-0.5">
+                {course.modules.length} module{course.modules.length !== 1 ? 's' : ''} ·{' '}
+                {course.totalLessons} lesson{course.totalLessons !== 1 ? 's' : ''}
+              </p>
+            </div>
+            <div className="flex items-center gap-1 shrink-0">
+              <button 
+                onClick={refreshCourse}
+                disabled={isLoading}
+                className={`p-1.5 rounded-lg text-foreground-muted hover:text-foreground hover:bg-surface-hover transition-colors ${isLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
+                title="Refresh course folder to detect new downloads"
+              >
+                <svg 
+                  width="14" 
+                  height="14" 
+                  viewBox="0 0 24 24" 
+                  fill="none" 
+                  stroke="currentColor" 
+                  strokeWidth="2" 
+                  strokeLinecap="round" 
+                  strokeLinejoin="round"
+                  className={isLoading ? 'animate-spin' : ''}
+                >
+                  <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
+                  <path d="M21 3v5h-5" />
+                </svg>
+              </button>
+              {/* Collapse sidebar button */}
+              <button
+                onClick={toggleSidebar}
+                className="p-1.5 rounded-lg text-foreground-muted hover:text-foreground hover:bg-surface-hover transition-colors"
+                title="Collapse sidebar"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="11 17 6 12 11 7" />
+                  <polyline points="18 17 13 12 18 7" />
+                </svg>
+              </button>
+            </div>
           </div>
-          <button 
-            onClick={refreshCourse}
-            disabled={isLoading}
-            className={`shrink-0 p-1.5 rounded-lg text-foreground-muted hover:text-foreground hover:bg-surface-hover transition-colors ${isLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
-            title="Refresh course folder to detect new downloads"
-          >
-            <svg 
-              width="14" 
-              height="14" 
-              viewBox="0 0 24 24" 
-              fill="none" 
-              stroke="currentColor" 
-              strokeWidth="2" 
-              strokeLinecap="round" 
-              strokeLinejoin="round"
-              className={isLoading ? 'animate-spin' : ''}
-            >
-              <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
-              <path d="M21 3v5h-5" />
-            </svg>
-          </button>
-        </div>
 
-        {/* Module list */}
-        <nav>
-          {course.modules.map((module) => (
-            <ModuleItem key={module.id} module={module} notes={notes} />
-          ))}
-        </nav>
-      </div>
-    </aside>
+          {/* Module list */}
+          <nav>
+            {course.modules.map((module) => (
+              <ModuleItem key={module.id} module={module} notes={notes} />
+            ))}
+          </nav>
+        </div>
+      </aside>
+
+      {/* Floating expand button when sidebar is collapsed */}
+      {!sidebarOpen && (
+        <button
+          onClick={toggleSidebar}
+          className="absolute left-0 top-3 z-10 flex items-center justify-center w-6 h-12 rounded-r-lg bg-surface border border-l-0 border-border text-foreground-muted hover:text-foreground hover:bg-surface-hover transition-all shadow-sm"
+          title="Expand sidebar"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="13 17 18 12 13 7" />
+          </svg>
+        </button>
+      )}
+    </div>
   );
 }
