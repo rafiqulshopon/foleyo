@@ -13,13 +13,23 @@ function ModuleItem({ module, notes }: { module: Module; notes: Record<string, s
   const stats = getModuleStats(module.id);
   const isActive = module.lessons.some((l) => l.id === currentLesson?.id);
   const listRef = useRef<HTMLDivElement>(null);
+  const activeLessonRef = useRef<HTMLDivElement>(null);
 
-  // Auto-expand module containing the current lesson
+  // Auto-expand module containing the current lesson and scroll to the active lesson
   useEffect(() => {
-    if (isActive && !expanded) {
-      setExpanded(true);
+    if (isActive) {
+      if (!expanded) {
+        setExpanded(true);
+      }
+      
+      // Scroll active lesson into view with a slight delay to allow expansion animation
+      setTimeout(() => {
+        if (activeLessonRef.current) {
+          activeLessonRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }, 300);
     }
-  }, [isActive]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isActive, currentLesson?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="mb-1">
@@ -85,6 +95,7 @@ function ModuleItem({ module, notes }: { module: Module; notes: Record<string, s
             return (
               <div
                 key={lesson.id}
+                ref={isCurrentLesson ? activeLessonRef : null}
                 className={`group flex items-center gap-2 px-2 py-2 rounded-lg cursor-pointer transition-all ${
                   isCurrentLesson
                     ? 'bg-accent/12 text-foreground'
