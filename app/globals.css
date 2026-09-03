@@ -164,20 +164,36 @@ body {
   animation: pulse-soft 2s ease-in-out infinite;
 }
 
-/* Recent course card entrance animation */
-@keyframes cardSlideIn {
+/* Library row entrance animation */
+@keyframes rowSlideIn {
   from {
     opacity: 0;
-    transform: translateY(12px) scale(0.97);
+    transform: translateY(6px);
   }
   to {
     opacity: 1;
-    transform: translateY(0) scale(1);
+    transform: translateY(0);
   }
 }
 
-.recent-card {
-  animation: cardSlideIn 0.4s ease-out both;
+.recent-row {
+  animation: rowSlideIn 0.35s ease-out both;
+}
+
+/* One-time "the parse" diagram reveal */
+@keyframes diagramReveal {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.diagram-row {
+  animation: diagramReveal 0.45s ease-out both;
 }
 
 /* Card removal animation */
@@ -209,4 +225,18 @@ html[data-theme="light"] .light-shadow {
 
 html[data-theme="light"] .light-shadow-md {
   box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.06), 0 2px 4px -2px rgba(0, 0, 0, 0.04);
+}
+
+/* ──────────────────────────────────────────────
+   Reduced motion — disable animation app-wide
+   ────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

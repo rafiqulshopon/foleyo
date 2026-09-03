@@ -2,13 +2,20 @@
 
 import { useCourse } from '@/app/context/course-context';
 import { useEffect, useState, useCallback } from 'react';
-import Image from 'next/image';
 import {
   loadRecentCourses,
   removeRecentCourse,
   type RecentCourse,
 } from '@/app/lib/recent-courses-store';
 import { getCourseThumbnail } from '@/app/lib/thumbnail-generator';
+
+/** Keyboard focus treatment shared by every interactive element. */
+const FOCUS_RING =
+  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background';
+
+/** The label style that structures the whole page — mono, uppercase, tracked out. */
+const LABEL =
+  'font-mono text-[11px] uppercase tracking-[0.15em] text-foreground-muted';
 
 /**
  * Format a timestamp into a human-readable relative time string.
@@ -38,27 +45,6 @@ function timeAgo(timestamp: number): string {
 }
 
 /**
- * Generate a deterministic gradient based on the course name.
- */
-function getCourseGradient(name: string): string {
-  const gradients = [
-    'from-violet-600 to-indigo-600',
-    'from-blue-600 to-cyan-500',
-    'from-emerald-600 to-teal-500',
-    'from-orange-500 to-amber-500',
-    'from-rose-600 to-pink-500',
-    'from-fuchsia-600 to-purple-500',
-    'from-sky-500 to-blue-600',
-    'from-lime-500 to-emerald-500',
-  ];
-  let hash = 0;
-  for (let i = 0; i < name.length; i++) {
-    hash = name.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  return gradients[Math.abs(hash) % gradients.length];
-}
-
-/**
  * Get initials from a course name (max 2 chars).
  */
 function getInitials(name: string): string {
@@ -70,34 +56,59 @@ function getInitials(name: string): string {
     .join('');
 }
 
-function RecentCourseCard({
-  course,
-  onResume,
-  onRemove,
-  index,
-}: {
-  course: RecentCourse;
-  onResume: () => void;
-  onRemove: () => void;
-  index: number;
-}) {
-  const [isHovered, setIsHovered] = useState(false);
-  const [removing, setRemoving] = useState(false);
+/**
+ * "The parse" — a real folder on the left, what Foleyo derives on the right.
+ * Values are exactly what parse-course.ts produces: numeric prefixes set the
+ * order and are stripped, underscores become spaces, words are capitalized.
+ */
+const PARSE_ROWS: { disk: string; foleyo: string; note: string; ignored?: boolean }[] = [
+  { disk: 'Complete_Web_Dev/', foleyo: 'Complete Web Dev', note: 'course name' },
+  { disk: '  01_HTML_Basics/', foleyo: 'Html Basics', note: 'module — the 01_ prefix sets order and is stripped' },
+  { disk: '  02_CSS_Styling/', foleyo: 'Css Styling', note: 'module — sorts numerically, so 10_ comes after 2_' },
+  { disk: '    01_Intro.mp4', foleyo: 'Intro', note: 'lesson — the prefix sets order' },
+  { disk: '    01_Intro.srt', foleyo: 'Subtitles', note: 'auto-loaded — 01_Intro.en.srt becomes an English track' },
+  { disk: '    notes.pdf', foleyo: 'Ignored', note: 'anything that is not video or .srt/.vtt', ignored: true },
+];
+
+function Spinner({ className = '' }: { className?: string }) {
+  return (
+    <svg
+      className={`animate-spin ${className}`}
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+    >
+      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+    </svg>
+  );
+}
+
+function SectionLabel({ label, meta }: { label: string; meta?: string }) {
+  return (
+    <div className="flex items-baseline justify-between gap-4">
+      <h2 className={`${LABEL} font-medium`}>{label}</h2>
+      {meta && <span className={`${LABEL} text-right`}>{meta}</span>}
+    </div>
+  );
+}
+
+function CourseThumb({ courseId, initials }: { courseId: string; initials: string }) {
   const [thumbnail, setThumbnail] = useState<string | null | 'generating'>(null);
 
   useEffect(() => {
-    getCourseThumbnail(course.name).then(setThumbnail);
+    getCourseThumbnail(courseId).then(setThumbnail);
 
     const handleGen = (e: Event) => {
       const customEvent = e as CustomEvent;
-      if (customEvent.detail.courseId === course.name) {
+      if (customEvent.detail.courseId === courseId) {
         setThumbnail('generating');
       }
     };
 
     const handleReady = (e: Event) => {
       const customEvent = e as CustomEvent;
-      if (customEvent.detail.courseId === course.name) {
+      if (customEvent.detail.courseId === courseId) {
         setThumbnail(customEvent.detail.thumbnail || null);
       }
     };
@@ -108,7 +119,45 @@ function RecentCourseCard({
       window.removeEventListener('foleyo-thumbnail-generating', handleGen);
       window.removeEventListener('foleyo-thumbnail-ready', handleReady);
     };
-  }, [course.name]);
+  }, [courseId]);
+
+  // Same footprint in every state — no layout shift while thumbnails load.
+  const box = 'h-[45px] w-20 shrink-0 overflow-hidden rounded-md sm:h-14 sm:w-24';
+
+  if (thumbnail === 'generating') {
+    return <div className={`${box} animate-pulse bg-surface-hover`} />;
+  }
+
+  if (thumbnail) {
+    return (
+      <div className={`${box} bg-black`}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={thumbnail} alt="" className="h-full w-full object-cover" />
+      </div>
+    );
+  }
+
+  return (
+    <div className={`${box} flex items-center justify-center bg-surface-active`}>
+      <span className="font-mono text-[10px] font-medium tracking-wide text-foreground-muted">
+        {initials}
+      </span>
+    </div>
+  );
+}
+
+function LibraryRow({
+  course,
+  index,
+  onResume,
+  onRemove,
+}: {
+  course: RecentCourse;
+  index: number;
+  onResume: () => void;
+  onRemove: () => void;
+}) {
+  const [removing, setRemoving] = useState(false);
 
   const handleRemove = useCallback(
     (e: React.MouseEvent) => {
@@ -119,171 +168,239 @@ function RecentCourseCard({
     [onRemove]
   );
 
-  const gradient = getCourseGradient(course.name);
-  const initials = getInitials(course.name);
+  const complete = course.percentage === 100;
 
   return (
     <div
       role="button"
       tabIndex={0}
+      aria-label={`${course.name} — resume`}
       onClick={onResume}
-      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onResume(); } }}
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
-      className={`recent-card group relative w-full text-left rounded-2xl border border-border bg-surface hover:bg-surface-hover transition-all duration-300 overflow-hidden cursor-pointer ${
+      onKeyDown={(e) => {
+        // Let inner controls (the remove button) handle their own keys.
+        if (e.target !== e.currentTarget) return;
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onResume();
+        }
+      }}
+      style={{ animationDelay: `${index * 60}ms` }}
+      className={`recent-row group flex w-full cursor-pointer items-center gap-3 rounded-lg px-2 py-3 text-left transition-colors hover:bg-surface-hover sm:gap-4 sm:px-3 ${FOCUS_RING} ${
         removing ? 'animate-card-remove' : ''
       }`}
-      style={{ animationDelay: `${index * 60}ms` }}
     >
-      {/* Top thumbnail / gradient banner */}
-      {thumbnail === 'generating' ? (
-        <div className="w-full h-28 bg-surface-hover animate-pulse" />
-      ) : thumbnail ? (
-        <div className="w-full h-28 bg-black relative">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={thumbnail} alt="" className="w-full h-full object-cover" />
-          <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent opacity-60 group-hover:opacity-100 transition-opacity duration-300" />
-        </div>
-      ) : (
-        <div className={`h-1 w-full bg-gradient-to-r ${gradient} opacity-60 group-hover:opacity-100 transition-opacity duration-300`} />
-      )}
+      <CourseThumb courseId={course.name} initials={getInitials(course.name)} />
 
-      <div className="p-4">
-        {/* Top row: avatar + meta */}
-        <div className="flex items-start gap-3">
-          {/* Course avatar */}
-          {thumbnail && thumbnail !== 'generating' ? null : (
-            <div
-              className={`shrink-0 w-11 h-11 rounded-xl bg-gradient-to-br ${gradient} flex items-center justify-center shadow-lg`}
-            >
-              <span className="text-white font-bold text-sm tracking-tight">
-                {initials}
-              </span>
-            </div>
-          )}
-
-          {/* Course info */}
-          <div className="flex-1 min-w-0">
-            <h3 className="text-sm font-semibold text-foreground truncate leading-tight">
-              {course.name}
-            </h3>
-            <p className="text-xs text-foreground-subtle mt-0.5">
-              {course.totalModules} module{course.totalModules !== 1 ? 's' : ''}{' '}
-              · {course.totalLessons} lesson
-              {course.totalLessons !== 1 ? 's' : ''}
-            </p>
-          </div>
-
-          {/* Remove button */}
-          <button
-            onClick={handleRemove}
-            className="shrink-0 p-1 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-surface-active text-foreground-subtle hover:text-danger transition-all duration-200"
-            title="Remove from recent"
-          >
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <line x1="18" y1="6" x2="6" y2="18" />
-              <line x1="6" y1="6" x2="18" y2="18" />
-            </svg>
-          </button>
-        </div>
-
-        {/* Progress bar */}
-        <div className="mt-3">
-          <div className="flex items-center justify-between mb-1.5">
-            <span className="text-[11px] text-foreground-muted">
-              {course.completedLessons} / {course.totalLessons} completed
-            </span>
-            <span
-              className={`text-[11px] font-medium ${
-                course.percentage === 100
-                  ? 'text-success'
-                  : course.percentage > 0
-                    ? 'text-accent'
-                    : 'text-foreground-subtle'
-              }`}
-            >
-              {course.percentage}%
-            </span>
-          </div>
-          <div className="h-1.5 bg-border/60 rounded-full overflow-hidden">
-            <div
-              className={`h-full rounded-full transition-all duration-700 ease-out ${
-                course.percentage === 100
-                  ? 'bg-success'
-                  : 'bg-gradient-to-r from-accent to-accent-hover'
-              }`}
-              style={{ width: `${Math.max(course.percentage, 0)}%` }}
-            />
-          </div>
-        </div>
-
-        {/* Last lesson info */}
+      {/* Name + last lesson */}
+      <div className="min-w-0 flex-1">
+        <h3 className="truncate text-sm font-medium leading-tight text-foreground">
+          {course.name}
+        </h3>
         {course.lastLessonTitle && (
-          <div className="mt-3 flex items-center gap-2 text-[11px] text-foreground-subtle">
-            <svg
-              width="12"
-              height="12"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              className="shrink-0 text-foreground-subtle"
-            >
-              <polygon points="5 3 19 12 5 21 5 3" />
-            </svg>
-            <span className="truncate">
-              {course.lastLessonModule && (
-                <span className="text-foreground-muted">
-                  {course.lastLessonModule} ›{' '}
-                </span>
-              )}
-              {course.lastLessonTitle}
-            </span>
-          </div>
+          <p className="mt-1 truncate text-xs leading-tight text-foreground-muted">
+            {course.lastLessonModule && (
+              <span className="text-foreground-muted">{course.lastLessonModule} › </span>
+            )}
+            {course.lastLessonTitle}
+          </p>
         )}
+        {/* Compact meta on small screens, where the progress block is hidden */}
+        <p className="mt-1 font-mono text-[11px] leading-tight text-foreground-muted sm:hidden">
+          {course.completedLessons} / {course.totalLessons} · {course.percentage}%
+        </p>
+      </div>
 
-        {/* Bottom row: time + resume hint */}
-        <div className="mt-3 flex items-center justify-between">
-          <span className="text-[11px] text-foreground-subtle">
+      {/* Progress block — mono numbers, thin bar */}
+      <div className="hidden w-36 shrink-0 flex-col items-end gap-1.5 sm:flex">
+        <span className="font-mono text-[11px] leading-none text-foreground-muted">
+          {course.completedLessons} / {course.totalLessons} · {course.percentage}%
+        </span>
+        <div className="h-1 w-28 overflow-hidden rounded-full bg-border">
+          <div
+            className={`h-full rounded-full transition-all duration-500 ease-out ${
+              complete ? 'bg-success' : 'bg-accent'
+            }`}
+            style={{ width: `${Math.max(course.percentage, 0)}%` }}
+          />
+        </div>
+        {/* Time crossfades into the resume affordance on hover / focus */}
+        <div className="relative h-4 w-28">
+          <span className="absolute inset-0 text-right font-mono text-[11px] leading-4 text-foreground-muted transition-opacity duration-200 group-hover:opacity-0 group-focus-within:opacity-0">
             {timeAgo(course.lastOpenedAt)}
           </span>
-
-          {/* Resume indicator */}
-          <div
-            className={`flex items-center gap-1 text-[11px] font-medium text-accent transition-all duration-200 ${
-              isHovered
-                ? 'opacity-100 translate-x-0'
-                : 'opacity-0 translate-x-2'
-            }`}
-          >
-            <span>Resume</span>
-            <svg
-              width="12"
-              height="12"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <polyline points="9 18 15 12 9 6" />
-            </svg>
-          </div>
+          <span className="absolute inset-0 text-right font-mono text-[11px] font-medium leading-4 text-accent opacity-0 transition-opacity duration-200 group-hover:opacity-100 group-focus-within:opacity-100">
+            Resume →
+          </span>
         </div>
       </div>
+
+      {/* Remove — revealed on hover and whenever the row has focus within */}
+      <button
+        onClick={handleRemove}
+        aria-label="Remove from library"
+        title="Remove from library"
+        className={`shrink-0 rounded-md p-1.5 text-foreground-subtle opacity-0 transition-opacity hover:bg-surface-active hover:text-danger focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100 ${FOCUS_RING}`}
+      >
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <line x1="18" y1="6" x2="6" y2="18" />
+          <line x1="6" y1="6" x2="18" y2="18" />
+        </svg>
+      </button>
     </div>
+  );
+}
+
+function HowItWorks() {
+  return (
+    <section className="mt-14 border-t border-border-subtle pt-10">
+      <SectionLabel label="How it works" meta="Nothing copied · Nothing uploaded" />
+
+      <div className="mt-6">
+        {/* Column headers */}
+        <div className="hidden gap-8 border-b border-border-subtle pb-2 sm:grid sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]">
+          <span className={LABEL}>Your disk</span>
+          <span />
+          <span className={LABEL}>In Foleyo</span>
+        </div>
+
+        <div className="mt-2">
+          {PARSE_ROWS.map((row, i) => (
+            <div
+              key={row.disk.trim()}
+              className="diagram-row grid grid-cols-1 gap-x-8 py-1 sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]"
+              style={{ animationDelay: `${i * 70}ms` }}
+            >
+              <code className="whitespace-pre pl-1 font-mono text-[13px] leading-6 text-foreground-muted">
+                {row.disk}
+              </code>
+              <span
+                aria-hidden="true"
+                className="hidden self-center font-mono text-[13px] text-foreground-subtle sm:block"
+              >
+                →
+              </span>
+              <p className="pl-6 font-mono text-[13px] leading-6 sm:pl-0">
+                <span
+                  className={
+                    row.ignored ? 'text-foreground-subtle' : 'text-foreground'
+                  }
+                >
+                  {row.foleyo}
+                </span>
+                <span className="text-foreground-muted"> — {row.note}</span>
+              </p>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function Kbd({ children }: { children: React.ReactNode }) {
+  return (
+    <kbd className="inline-flex items-center justify-center rounded border border-border bg-surface px-1.5 py-0.5 font-mono text-[10px] leading-none text-foreground-muted">
+      {children}
+    </kbd>
+  );
+}
+
+function Shortcut({ keys, action }: { keys: string[]; action: string }) {
+  return (
+    <div className="flex items-center justify-between gap-3 text-xs text-foreground-muted">
+      <span className="flex gap-1">
+        {keys.map((k) => (
+          <Kbd key={k}>{k}</Kbd>
+        ))}
+      </span>
+      <span>{action}</span>
+    </div>
+  );
+}
+
+function Reference() {
+  return (
+    <section className="mt-14 border-t border-border-subtle pt-10">
+      <SectionLabel label="Reference" />
+
+      <div className="mt-6 grid grid-cols-1 gap-10 md:grid-cols-3 md:gap-8">
+        {/* Formats */}
+        <div className="md:border-l md:border-border-subtle md:pl-8 md:first:border-l-0 md:first:pl-0">
+          <h3 className={`${LABEL} font-medium`}>Formats</h3>
+          <p className="mt-3 font-mono text-[11px] leading-none text-foreground-muted">Video</p>
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
+            {['.mp4', '.mkv', '.webm', '.mov', '.ts'].map((ext) => (
+              <span
+                key={ext}
+                className="rounded-md border border-border-subtle bg-surface px-2 py-1 font-mono text-[11px] text-foreground-muted"
+              >
+                {ext}
+              </span>
+            ))}
+          </div>
+          <p className="mt-3 font-mono text-[11px] leading-none text-foreground-muted">Subtitles</p>
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
+            {['.srt', '.vtt'].map((ext) => (
+              <span
+                key={ext}
+                className="rounded-md border border-border-subtle bg-surface px-2 py-1 font-mono text-[11px] text-foreground-muted"
+              >
+                {ext}
+              </span>
+            ))}
+          </div>
+          <p className="mt-3 text-xs leading-relaxed text-foreground-muted">
+            MKV and TS depend on the codecs inside — H.264 in an MP4 plays everywhere.
+          </p>
+        </div>
+
+        {/* Local by design */}
+        <div className="md:border-l md:border-border-subtle md:pl-8">
+          <h3 className={`${LABEL} font-medium`}>Local by design</h3>
+          <ul className="mt-3 space-y-2.5">
+            {[
+              ['No uploads', ' — files stream straight from your disk.'],
+              ['No account', ' — progress lives in this browser.'],
+              ['No network', ' — works on a plane.'],
+            ].map(([lead, rest]) => (
+              <li key={lead} className="text-sm leading-relaxed">
+                <span className="text-foreground">{lead}</span>
+                <span className="text-foreground-muted">{rest}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        {/* Shortcuts */}
+        <div className="md:border-l md:border-border-subtle md:pl-8">
+          <h3 className={`${LABEL} font-medium`}>Shortcuts</h3>
+          <div className="mt-3 space-y-2">
+            <Shortcut keys={['Space', 'K']} action="play / pause" />
+            <Shortcut keys={['←', '→']} action="seek 5s" />
+            <Shortcut keys={['↑', '↓']} action="volume" />
+            <Shortcut keys={['M', 'F']} action="mute · fullscreen" />
+            <Shortcut keys={['C', 'I']} action="captions · PiP" />
+            <Shortcut keys={['<', '>']} action="speed down / up" />
+          </div>
+          <p className="mt-3 text-xs leading-relaxed text-foreground-muted">
+            When the player has focus.
+          </p>
+        </div>
+      </div>
+
+      <p className="mt-12 font-mono text-[11px] text-foreground-muted">
+        Foleyo needs Chrome or Edge on desktop — the File System Access API is Chromium-only.
+      </p>
+    </section>
   );
 }
 
@@ -317,291 +434,119 @@ export function WelcomeScreen() {
 
   const hasRecent = recentCourses.length > 0;
 
+  // Library summary for the section meta: "6 COURSES · 214/540 LESSONS · 61%"
+  const totals = recentCourses.reduce(
+    (acc, c) => ({
+      completed: acc.completed + c.completedLessons,
+      total: acc.total + c.totalLessons,
+    }),
+    { completed: 0, total: 0 }
+  );
+  const libraryMeta = `${recentCourses.length} ${
+    recentCourses.length === 1 ? 'course' : 'courses'
+  } · ${totals.completed}/${totals.total} lessons · ${
+    totals.total > 0 ? Math.round((totals.completed / totals.total) * 100) : 0
+  }%`;
+
   return (
-    <div className="flex-1 flex items-center justify-center p-6 sm:p-12 overflow-y-auto">
-      <div
-        className={`w-full animate-fade-in ${hasRecent ? 'max-w-2xl' : 'max-w-4xl'}`}
-      >
-        {/* Header section */}
-        <div className="text-center mb-10 relative">
-          {/* Subtle background glow for empty state */}
-          {!hasRecent && (
-            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[120%] h-[150%] bg-accent/5 blur-[120px] rounded-[100%] pointer-events-none -z-10" />
-          )}
-          
-          {/* Logo */}
-          <div className="mb-8 flex justify-center">
-            <div className="relative w-28 h-28 flex items-center justify-center drop-shadow-2xl hover:scale-105 transition-transform duration-500">
-              <Image 
-                src="/logo.png" 
-                alt="Foleyo Logo" 
-                fill 
-                sizes="112px"
-                className="object-contain" 
-                priority
-                loading="eager"
-              />
-            </div>
-          </div>
-
-          <h1 className={`font-bold text-foreground mb-4 tracking-tight ${hasRecent ? 'text-2xl sm:text-3xl' : 'text-4xl sm:text-5xl'}`}>
-            {hasRecent ? 'Continue Learning' : 'Your Premium Offline Learning Experience'}
+    <div className="flex-1 overflow-y-auto">
+      <div className="mx-auto w-full max-w-5xl animate-fade-in px-5 py-12 sm:px-8 sm:py-16 lg:px-10 lg:py-20">
+        {/* Intro */}
+        <header>
+          <p className={LABEL}>Runs entirely on this machine</p>
+          <h1 className="mt-4 max-w-2xl text-balance text-3xl font-medium leading-[1.15] tracking-tight text-foreground sm:text-4xl lg:text-5xl">
+            Turn a folder of videos into a course.
           </h1>
-          <p className={`text-foreground-muted mx-auto leading-relaxed ${hasRecent ? 'text-sm sm:text-base max-w-md' : 'text-lg sm:text-xl max-w-2xl'}`}>
-            {hasRecent
-              ? 'Pick up where you left off or open a new course folder.'
-              : 'Load any massive video course from your computer and start learning with a beautiful, distraction-free interface.'}
+          <p className="mt-4 max-w-xl text-[15px] leading-relaxed text-foreground-muted">
+            Foleyo reads a course folder straight off your disk — modules, lessons,
+            subtitles — and tracks your progress as you watch. Nothing uploads. It
+            works offline.
           </p>
-        </div>
 
-        {/* Open folder button */}
-        <div className="flex justify-center mb-12">
-          <button
-            onClick={openFolder}
-            disabled={isLoading}
-            className={`group relative inline-flex items-center gap-3 font-semibold rounded-2xl shadow-xl transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:cursor-wait disabled:hover:scale-100 ${
-              hasRecent
-                ? 'px-5 py-3 text-sm bg-surface border border-border text-foreground hover:border-accent/50 hover:bg-surface-hover shadow-none'
-                : 'px-10 py-5 text-lg bg-gradient-to-r from-accent to-accent-hover text-white shadow-accent/25 hover:shadow-accent/40 ring-1 ring-white/10'
-            }`}
-          >
-            {isLoading && !resumingFolder ? (
-              <>
-                <svg
-                  className="animate-spin h-5 w-5"
-                  xmlns="http://www.w3.org/2000/svg"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                >
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                </svg>
-                Loading course...
-              </>
-            ) : (
-              <>
-                <svg
-                  width={hasRecent ? "20" : "24"}
-                  height={hasRecent ? "20" : "24"}
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-                  <line x1="12" y1="11" x2="12" y2="17" />
-                  <polyline points="9 14 12 11 15 14" />
-                </svg>
-                {hasRecent ? 'Open New Course' : 'Open Course Folder'}
-              </>
-            )}
-
-            {/* Glow effect — only on the primary variant */}
-            {!hasRecent && (
-              <div className="absolute inset-0 rounded-2xl bg-gradient-to-r from-accent to-accent-hover opacity-0 group-hover:opacity-30 blur-2xl transition-opacity duration-500 -z-10" />
-            )}
-          </button>
-        </div>
-
-        {/* Error display */}
-        {error && (
-          <div className="mb-8 px-4 py-3 rounded-xl bg-danger/10 border border-danger/20 text-danger text-sm text-left max-w-md mx-auto">
-            <div className="flex items-start gap-2">
-              <svg
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                className="shrink-0 mt-0.5"
-              >
-                <circle cx="12" cy="12" r="10" />
-                <line x1="12" y1="8" x2="12" y2="12" />
-                <line x1="12" y1="16" x2="12.01" y2="16" />
-              </svg>
-              <span>{error}</span>
-            </div>
-          </div>
-        )}
-
-        {/* Recent courses section */}
-        {loadingRecent ? (
-          <div className="flex justify-center py-8">
-            <div className="flex items-center gap-2 text-foreground-subtle text-sm">
-              <svg
-                className="animate-spin h-4 w-4"
-                xmlns="http://www.w3.org/2000/svg"
-                fill="none"
-                viewBox="0 0 24 24"
-              >
-                <circle
-                  className="opacity-25"
-                  cx="12"
-                  cy="12"
-                  r="10"
-                  stroke="currentColor"
-                  strokeWidth="4"
-                />
-                <path
-                  className="opacity-75"
-                  fill="currentColor"
-                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-                />
-              </svg>
-              Loading...
-            </div>
-          </div>
-        ) : hasRecent ? (
-          <div className="animate-fade-in">
-            {/* Section header */}
-            <div className="flex items-center gap-2 mb-4">
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                className="text-foreground-muted"
-              >
-                <circle cx="12" cy="12" r="10" />
-                <polyline points="12 6 12 12 16 14" />
-              </svg>
-              <h2 className="text-xs font-semibold text-foreground-muted uppercase tracking-wider">
-                Recently Played
-              </h2>
-            </div>
-
-            {/* Course cards grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {recentCourses.map((course, i) => (
-                <div key={course.folderName} className="relative">
-                  {/* Loading overlay when resuming this specific course */}
-                  {resumingFolder === course.folderName && (
-                    <div className="absolute inset-0 z-10 rounded-2xl bg-surface/80 backdrop-blur-sm flex items-center justify-center">
-                      <div className="flex items-center gap-2 text-accent text-sm font-medium">
-                        <svg
-                          className="animate-spin h-4 w-4"
-                          xmlns="http://www.w3.org/2000/svg"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                        >
-                          <circle
-                            className="opacity-25"
-                            cx="12"
-                            cy="12"
-                            r="10"
-                            stroke="currentColor"
-                            strokeWidth="4"
-                          />
-                          <path
-                            className="opacity-75"
-                            fill="currentColor"
-                            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-                          />
-                        </svg>
-                        Resuming...
-                      </div>
-                    </div>
-                  )}
-                  <RecentCourseCard
-                    course={course}
-                    onResume={() => handleResume(course)}
-                    onRemove={() => handleRemove(course.folderName)}
-                    index={i}
-                  />
-                </div>
-              ))}
-            </div>
-          </div>
-        ) : (
-          /* Modern Features Grid & Folder Hint */
-          <div className="animate-fade-in max-w-4xl mx-auto space-y-8">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Feature 1 */}
-              <div className="bg-surface/50 border border-border/50 rounded-2xl p-6 backdrop-blur-sm flex flex-col items-center text-center hover:bg-surface hover:border-border transition-colors">
-                <div className="w-12 h-12 rounded-full bg-accent/10 flex items-center justify-center mb-4">
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-accent">
-                    <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
-                    <line x1="8" y1="21" x2="16" y2="21"/>
-                    <line x1="12" y1="17" x2="12" y2="21"/>
-                  </svg>
-                </div>
-                <h3 className="font-semibold text-foreground mb-2">100% Local & Private</h3>
-                <p className="text-sm text-foreground-subtle leading-relaxed">No uploads. Streams multi-gigabyte courses instantly directly from your hard drive.</p>
-              </div>
-
-              {/* Feature 2 */}
-              <div className="bg-surface/50 border border-border/50 rounded-2xl p-6 backdrop-blur-sm flex flex-col items-center text-center hover:bg-surface hover:border-border transition-colors">
-                <div className="w-12 h-12 rounded-full bg-success/10 flex items-center justify-center mb-4">
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-success">
-                    <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
-                  </svg>
-                </div>
-                <h3 className="font-semibold text-foreground mb-2">Progress Tracking</h3>
-                <p className="text-sm text-foreground-subtle leading-relaxed">Never lose your place. Foleyo automatically tracks your completed lessons and remembers your exact timestamp.</p>
-              </div>
-
-              {/* Feature 3 */}
-              <div className="bg-surface/50 border border-border/50 rounded-2xl p-6 backdrop-blur-sm flex flex-col items-center text-center hover:bg-surface hover:border-border transition-colors">
-                <div className="w-12 h-12 rounded-full bg-warning/10 flex items-center justify-center mb-4">
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-warning">
-                    <path d="M12 20h9"/>
-                    <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
-                  </svg>
-                </div>
-                <h3 className="font-semibold text-foreground mb-2">Integrated Notes</h3>
-                <p className="text-sm text-foreground-subtle leading-relaxed">Take distraction-free Markdown notes side-by-side with your video. Export to .md anytime.</p>
-              </div>
-
-              {/* Feature 4 */}
-              <div className="bg-surface/50 border border-border/50 rounded-2xl p-6 backdrop-blur-sm flex flex-col items-center text-center hover:bg-surface hover:border-border transition-colors">
-                <div className="w-12 h-12 rounded-full bg-blue-500/10 flex items-center justify-center mb-4">
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-blue-500">
-                    <polygon points="5 3 19 12 5 21 5 3"/>
-                  </svg>
-                </div>
-                <h3 className="font-semibold text-foreground mb-2">Universal Playback</h3>
-                <p className="text-sm text-foreground-subtle leading-relaxed">Supports standard web media formats including .mp4, .webm, and .mkv with automatic subtitle detection.</p>
-              </div>
-            </div>
-
-            {/* Folder structure hint - moved below features */}
-            <div className="bg-surface rounded-2xl border border-border p-6 mt-8 flex flex-col sm:flex-row items-center gap-6">
-              <div className="flex-1">
-                <h3 className="text-sm font-semibold text-foreground mb-2 flex items-center gap-2">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-accent">
+          <div className="mt-8 flex flex-wrap items-center gap-4">
+            <button
+              onClick={openFolder}
+              disabled={isLoading}
+              className={`inline-flex items-center gap-2.5 rounded-lg bg-accent px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:cursor-wait disabled:opacity-50 ${FOCUS_RING}`}
+            >
+              {isLoading && !resumingFolder ? (
+                <>
+                  <Spinner className="h-4 w-4" />
+                  Loading course…
+                </>
+              ) : (
+                <>
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
                     <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
                   </svg>
-                  Expected Folder Structure
-                </h3>
-                <p className="text-sm text-foreground-subtle leading-relaxed mb-4">
-                  Organize your course folder simply. Any subfolders are treated as modules, and the video files inside them become lessons. Foleyo automatically builds a Netflix-like sidebar for you.
-                </p>
-              </div>
-              <div className="bg-background rounded-xl border border-border/50 p-4 font-mono text-[11px] text-foreground w-full sm:w-auto shadow-inner">
-                <div className="text-foreground font-semibold">📁 Complete_Web_Dev/</div>
-                <div className="ml-4 text-foreground-muted">📁 01_HTML_Basics/</div>
-                <div className="ml-8 text-accent font-medium">🎬 01_Intro.mp4</div>
-                <div className="ml-8 text-accent font-medium">🎬 02_Elements.mp4</div>
-                <div className="ml-4 text-foreground-muted">📁 02_CSS_Styling/</div>
-                <div className="ml-8 text-accent font-medium">🎬 01_Selectors.mp4</div>
-              </div>
-            </div>
+                  Open course folder
+                </>
+              )}
+            </button>
+            {hasRecent && (
+              <span className="font-mono text-[11px] text-foreground-muted">or resume below</span>
+            )}
           </div>
-        )}
 
-        {/* Browser support note */}
-        <p className="mt-6 text-xs text-foreground-subtle text-center">
-          Works on Chrome and Edge. Requires File System Access API support.
-        </p>
+          {error && (
+            <div
+              role="alert"
+              className="mt-4 max-w-xl border-l-2 border-danger bg-danger/10 px-4 py-2.5 text-sm leading-relaxed text-danger"
+            >
+              {error}
+            </div>
+          )}
+        </header>
+
+        {loadingRecent ? (
+          <p
+            className={`${LABEL} mt-14 animate-pulse border-t border-border-subtle pt-10`}
+          >
+            Loading…
+          </p>
+        ) : (
+          <>
+            {/* Library */}
+            {hasRecent && (
+              <section className="mt-14 border-t border-border-subtle pt-10">
+                <SectionLabel label="Library" meta={libraryMeta} />
+                <div className="mt-4 divide-y divide-border-subtle">
+                  {recentCourses.map((course, i) => (
+                    <div key={course.folderName} className="relative">
+                      {resumingFolder === course.folderName && (
+                        <div className="absolute inset-0 z-10 flex items-center justify-center rounded-lg bg-background/80">
+                          <div className="flex items-center gap-2 font-mono text-xs text-foreground-muted">
+                            <Spinner className="h-3.5 w-3.5 text-accent" />
+                            Resuming…
+                          </div>
+                        </div>
+                      )}
+                      <LibraryRow
+                        course={course}
+                        index={i}
+                        onResume={() => handleResume(course)}
+                        onRemove={() => handleRemove(course.folderName)}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            <HowItWorks />
+            <Reference />
+          </>
+        )}
       </div>
     </div>
   );
