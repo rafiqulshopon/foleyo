@@ -412,6 +412,7 @@ export function CourseProvider({ children }: { children: ReactNode }) {
   // Select a specific lesson
   const selectLesson = useCallback(
     async (lesson: Lesson) => {
+      setError(null);
       try {
         const url = await loadVideo(lesson);
         setVideoUrl(url);
@@ -432,11 +433,12 @@ export function CourseProvider({ children }: { children: ReactNode }) {
   const refreshCourse = useCallback(async () => {
     if (!dirHandleRef.current || !course) return;
     setIsLoading(true);
+    setError(null);
     try {
       const parsedCourse = await parseCourseDirectory(dirHandleRef.current);
       await saveCourseCache(dirHandleRef.current.name, parsedCourse);
       setCourse(parsedCourse);
-      
+
       if (currentLesson) {
         const allLessons = parsedCourse.modules.flatMap(m => m.lessons);
         const newLessonRef = allLessons.find(l => l.id === currentLesson.id);
@@ -446,6 +448,9 @@ export function CourseProvider({ children }: { children: ReactNode }) {
       }
     } catch (e) {
       console.error('Failed to refresh course:', e);
+      setError(
+        `Failed to refresh course folder: ${e instanceof Error ? e.message : 'Unknown error'}. The folder may have been moved, renamed, or disconnected.`
+      );
     } finally {
       setIsLoading(false);
     }

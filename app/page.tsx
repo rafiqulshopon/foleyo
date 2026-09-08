@@ -7,15 +7,21 @@ import { Header } from '@/app/components/header';
 import { Sidebar } from '@/app/components/sidebar';
 import { VideoPlayer } from '@/app/components/video-player-wrapper';
 import { WelcomeScreen } from '@/app/components/welcome-screen';
+import { ErrorAlert } from '@/app/components/error-alert';
 import { MKV_WARNING } from '@/app/types';
-import { useEffect, useState } from 'react';
+import { useSyncExternalStore, useState } from 'react';
+
+// Feature detection can't change at runtime — a no-op subscription is enough.
+const subscribeNoop = () => () => {};
 
 function BrowserCheck() {
-  const [isSupported, setIsSupported] = useState(true);
-
-  useEffect(() => {
-    setIsSupported('showDirectoryPicker' in window);
-  }, []);
+  // Server snapshot says "supported" so nothing flashes during hydration;
+  // the client snapshot corrects it before first paint commits.
+  const isSupported = useSyncExternalStore(
+    subscribeNoop,
+    () => 'showDirectoryPicker' in window,
+    () => true
+  );
 
   if (isSupported) return null;
 
@@ -67,7 +73,7 @@ function BrowserCheck() {
 }
 
 function CourseApp() {
-  const { course, hasUnsupportedFormat, invalidLink } = useCourse();
+  const { course, error, hasUnsupportedFormat, invalidLink } = useCourse();
   const [unsupportedDismissed, setUnsupportedDismissed] = useState(false);
 
   return (
@@ -99,6 +105,7 @@ function CourseApp() {
           </div>
           <button
             onClick={() => setUnsupportedDismissed(true)}
+            aria-label="Dismiss format warning"
             className="text-warning/70 hover:text-warning transition-colors p-1"
           >
             <svg
@@ -115,6 +122,15 @@ function CourseApp() {
               <line x1="6" y1="6" x2="18" y2="18" />
             </svg>
           </button>
+        </div>
+      )}
+
+      {/* Errors from course actions (refresh, lesson load) surface here —
+          the welcome screen that used to show them is unmounted while a
+          course is open. */}
+      {course && error && (
+        <div className="px-4 pt-3 shrink-0">
+          <ErrorAlert message={error} />
         </div>
       )}
 

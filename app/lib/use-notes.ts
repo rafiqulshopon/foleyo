@@ -1,11 +1,40 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useSyncExternalStore } from 'react';
+
+const EMPTY_NOTES: Record<string, string> = {};
+
+function notesKey(courseId: string) {
+  return `foleyo_notes_${courseId}`;
+}
+
+function readNote(courseId: string, lessonId: string): string {
+  try {
+    const stored = localStorage.getItem(notesKey(courseId));
+    if (!stored) return '';
+    const notesObj = JSON.parse(stored) as Record<string, string>;
+    return notesObj[lessonId] || '';
+  } catch {
+    return '';
+  }
+}
 
 export function useNotes(courseId: string | undefined, lessonId: string | undefined) {
   const [note, setNote] = useState<string>('');
   const [isSaved, setIsSaved] = useState<boolean>(false);
-  
+
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const contextRef = useRef({ courseId, lessonId, note, hasUnsavedChanges: false });
+
+  // Load the note for the active lesson with a render-time adjustment —
+  // when the lesson key changes, reset immediately instead of via an effect.
+  // (Effect ordering still guarantees the unmount/switch flush below saves
+  // the *old* note: it reads contextRef, which is only synced in an effect.)
+  const activeKey = courseId && lessonId ? `${courseId}::${lessonId}` : null;
+  const [loadedKey, setLoadedKey] = useState<string | null>(null);
+  if (activeKey !== loadedKey) {
+    setLoadedKey(activeKey);
+    setNote(activeKey && courseId && lessonId ? readNote(courseId, lessonId) : '');
+    setIsSaved(false);
+  }
 
   // Keep refs up to date for the unmount flush
   useEffect(() => {
@@ -14,17 +43,17 @@ export function useNotes(courseId: string | undefined, lessonId: string | undefi
 
   const saveNoteImmediate = useCallback((cId: string, lId: string, text: string) => {
     if (!cId || !lId) return;
-    const storageKey = `foleyo_notes_${cId}`;
+    const storageKey = notesKey(cId);
     try {
       const stored = localStorage.getItem(storageKey);
       const notesObj = stored ? JSON.parse(stored) : {};
-      
+
       if (text.trim() === '') {
         delete notesObj[lId];
       } else {
         notesObj[lId] = text;
       }
-      
+
       localStorage.setItem(storageKey, JSON.stringify(notesObj));
       // Dispatch an event so other components (like sidebar) can react
       window.dispatchEvent(new Event('foleyo_notes_updated'));
@@ -40,7 +69,7 @@ export function useNotes(courseId: string | undefined, lessonId: string | undefi
         clearTimeout(saveTimeoutRef.current);
         saveTimeoutRef.current = null;
       }
-      
+
       const { courseId: prevCId, lessonId: prevLId, note: prevNote, hasUnsavedChanges } = contextRef.current;
       if (hasUnsavedChanges && prevCId && prevLId) {
         saveNoteImmediate(prevCId, prevLId, prevNote);
@@ -48,28 +77,6 @@ export function useNotes(courseId: string | undefined, lessonId: string | undefi
       }
     };
   }, [saveNoteImmediate, courseId, lessonId]); // when these change, the cleanup runs for the old ones!
-
-  // Load note when lesson changes
-  useEffect(() => {
-    setIsSaved(false);
-    if (!courseId || !lessonId) {
-      setNote('');
-      return;
-    }
-    
-    const storageKey = `foleyo_notes_${courseId}`;
-    try {
-      const stored = localStorage.getItem(storageKey);
-      if (stored) {
-        const notesObj = JSON.parse(stored);
-        setNote(notesObj[lessonId] || '');
-      } else {
-        setNote('');
-      }
-    } catch {
-      setNote('');
-    }
-  }, [courseId, lessonId]);
 
   const updateNote = useCallback((text: string) => {
     setNote(text);
@@ -94,28 +101,44 @@ export function useNotes(courseId: string | undefined, lessonId: string | undefi
   return { note, updateNote, isSaved };
 }
 
-export function useCourseNotes(courseId: string | undefined) {
-  const [notes, setNotes] = useState<Record<string, string>>({});
+const NOTES_EVENT = 'foleyo_notes_updated';
 
-  const loadNotes = useCallback(() => {
-    if (!courseId || typeof window === 'undefined') {
-      setNotes({});
-      return;
-    }
-    const storageKey = `foleyo_notes_${courseId}`;
+function subscribeToNotes(onChange: () => void) {
+  window.addEventListener(NOTES_EVENT, onChange);
+  return () => window.removeEventListener(NOTES_EVENT, onChange);
+}
+
+// Parsed snapshots are cached per course keyed by the raw storage string, so
+// getSnapshot keeps a stable object identity between renders.
+const notesCache = new Map<string, { raw: string | null; parsed: Record<string, string> }>();
+
+function readCourseNotesSnapshot(courseId: string): Record<string, string> {
+  let raw: string | null = null;
+  try {
+    raw = localStorage.getItem(notesKey(courseId));
+  } catch {
+    raw = null;
+  }
+
+  const cached = notesCache.get(courseId);
+  if (cached && cached.raw === raw) return cached.parsed;
+
+  let parsed = EMPTY_NOTES;
+  if (raw) {
     try {
-      const stored = localStorage.getItem(storageKey);
-      setNotes(stored ? JSON.parse(stored) : {});
+      parsed = JSON.parse(raw) as Record<string, string>;
     } catch {
-      setNotes({});
+      parsed = EMPTY_NOTES;
     }
-  }, [courseId]);
+  }
+  notesCache.set(courseId, { raw, parsed });
+  return parsed;
+}
 
-  useEffect(() => {
-    loadNotes();
-    window.addEventListener('foleyo_notes_updated', loadNotes);
-    return () => window.removeEventListener('foleyo_notes_updated', loadNotes);
-  }, [loadNotes]);
-
-  return notes;
+export function useCourseNotes(courseId: string | undefined) {
+  return useSyncExternalStore(
+    subscribeToNotes,
+    () => (courseId ? readCourseNotesSnapshot(courseId) : EMPTY_NOTES),
+    () => EMPTY_NOTES
+  );
 }

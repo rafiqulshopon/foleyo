@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useCourse } from '@/app/context/course-context';
 import { getLessonProgress } from '@/app/lib/progress-store';
 import { useCourseNotes } from '@/app/lib/use-notes';
+import { FOCUS_RING } from '@/app/components/focus-ring';
 import type { Module } from '@/app/types';
 
 function ModuleItem({ module, notes }: { module: Module; notes: Record<string, string> }) {
@@ -14,29 +15,37 @@ function ModuleItem({ module, notes }: { module: Module; notes: Record<string, s
   const isActive = module.lessons.some((l) => l.id === currentLesson?.id);
   const listRef = useRef<HTMLDivElement>(null);
   const activeLessonRef = useRef<HTMLDivElement>(null);
+  const lessonsId = `module-${module.index}-lessons`;
 
-  // Auto-expand module containing the current lesson and scroll to the active lesson
-  useEffect(() => {
-    if (isActive) {
-      if (!expanded) {
-        setExpanded(true);
-      }
-      
-      // Scroll active lesson into view with a slight delay to allow expansion animation
-      setTimeout(() => {
-        if (activeLessonRef.current) {
-          activeLessonRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        }
-      }, 300);
+  // Auto-expand this module when it contains the current lesson.
+  // Render-time adjustment (not an effect) so the first paint already
+  // shows the module expanded.
+  const [prevActiveKey, setPrevActiveKey] = useState<string | null>(null);
+  const activeKey = isActive ? (currentLesson?.id ?? null) : null;
+  if (activeKey !== prevActiveKey) {
+    setPrevActiveKey(activeKey);
+    if (activeKey && !expanded) {
+      setExpanded(true);
     }
-  }, [isActive, currentLesson?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }
+
+  // Scroll the active lesson into view once the expansion has settled
+  useEffect(() => {
+    if (!isActive || !currentLesson?.id) return;
+    const timer = setTimeout(() => {
+      activeLessonRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [isActive, currentLesson?.id]);
 
   return (
     <div className="mb-1">
       {/* Module header */}
       <button
         onClick={() => setExpanded(!expanded)}
-        className={`w-full flex items-center gap-2 px-3 py-2.5 rounded-lg text-left transition-all group ${
+        aria-expanded={expanded}
+        aria-controls={lessonsId}
+        className={`w-full flex items-center gap-2 px-3 py-2.5 rounded-lg text-left transition-all group ${FOCUS_RING} ${
           isActive
             ? 'bg-accent/8 text-foreground'
             : 'hover:bg-surface-hover text-foreground-muted hover:text-foreground'
@@ -63,7 +72,14 @@ function ModuleItem({ module, notes }: { module: Module; notes: Record<string, s
           <div className="text-sm font-medium truncate">{module.title}</div>
           <div className="flex items-center gap-2 mt-0.5">
             {/* Mini progress bar */}
-            <div className="flex-1 h-1 bg-border rounded-full overflow-hidden">
+            <div
+              className="flex-1 h-1 bg-border rounded-full overflow-hidden"
+              role="progressbar"
+              aria-label={`${module.title} completion`}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={stats.percentage}
+            >
               <div
                 className="h-full bg-accent rounded-full transition-all duration-300"
                 style={{ width: `${stats.percentage}%` }}
@@ -78,6 +94,7 @@ function ModuleItem({ module, notes }: { module: Module; notes: Record<string, s
 
       {/* Lessons list */}
       <div
+        id={lessonsId}
         ref={listRef}
         className="overflow-hidden transition-all duration-200 ease-out"
         style={{
@@ -96,12 +113,23 @@ function ModuleItem({ module, notes }: { module: Module; notes: Record<string, s
               <div
                 key={lesson.id}
                 ref={isCurrentLesson ? activeLessonRef : null}
-                className={`group flex items-center gap-2 px-2 py-2 rounded-lg cursor-pointer transition-all ${
+                role="button"
+                tabIndex={0}
+                aria-current={isCurrentLesson ? 'true' : undefined}
+                aria-label={`Play lesson: ${lesson.title}`}
+                className={`group flex items-center gap-2 px-2 py-2 rounded-lg cursor-pointer transition-all ${FOCUS_RING} ${
                   isCurrentLesson
                     ? 'bg-accent/12 text-foreground'
                     : 'hover:bg-surface-hover text-foreground-muted hover:text-foreground'
                 }`}
                 onClick={() => selectLesson(lesson)}
+                onKeyDown={(e) => {
+                  if (e.target !== e.currentTarget) return;
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    selectLesson(lesson);
+                  }
+                }}
               >
                 {/* Completion checkbox */}
                 <button
@@ -109,7 +137,13 @@ function ModuleItem({ module, notes }: { module: Module; notes: Record<string, s
                     e.stopPropagation();
                     markComplete(lesson.id);
                   }}
-                  className={`shrink-0 w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ${
+                  aria-label={
+                    lessonProgress.completed
+                      ? 'Mark as incomplete'
+                      : 'Mark as complete'
+                  }
+                  aria-pressed={lessonProgress.completed}
+                  className={`shrink-0 w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ${FOCUS_RING} ${
                     lessonProgress.completed
                       ? 'bg-success border-success text-background'
                       : 'border-border hover:border-foreground-muted'
@@ -224,10 +258,11 @@ export function Sidebar() {
               </p>
             </div>
             <div className="flex items-center gap-1 shrink-0">
-              <button 
+              <button
                 onClick={refreshCourse}
                 disabled={isLoading}
-                className={`p-1.5 rounded-lg text-foreground-muted hover:text-foreground hover:bg-surface-hover transition-colors ${isLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
+                aria-label="Refresh course folder to detect new downloads"
+                className={`p-1.5 rounded-lg text-foreground-muted hover:text-foreground hover:bg-surface-hover transition-colors ${FOCUS_RING} ${isLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
                 title="Refresh course folder to detect new downloads"
               >
                 <svg 
@@ -248,7 +283,8 @@ export function Sidebar() {
               {/* Collapse sidebar button */}
               <button
                 onClick={toggleSidebar}
-                className="p-1.5 rounded-lg text-foreground-muted hover:text-foreground hover:bg-surface-hover transition-colors"
+                aria-label="Collapse sidebar"
+                className={`p-1.5 rounded-lg text-foreground-muted hover:text-foreground hover:bg-surface-hover transition-colors ${FOCUS_RING}`}
                 title="Collapse sidebar"
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -274,7 +310,8 @@ export function Sidebar() {
       {!sidebarOpen && (
         <button
           onClick={toggleSidebar}
-          className="absolute left-0 top-3 z-10 flex items-center justify-center w-6 h-12 rounded-r-lg bg-surface border border-l-0 border-border text-foreground-muted hover:text-foreground hover:bg-surface-hover transition-all shadow-sm"
+          aria-label="Expand sidebar"
+          className={`absolute left-0 top-3 z-10 flex items-center justify-center w-6 h-12 rounded-r-lg bg-surface border border-l-0 border-border text-foreground-muted hover:text-foreground hover:bg-surface-hover transition-all shadow-sm ${FOCUS_RING}`}
           title="Expand sidebar"
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">

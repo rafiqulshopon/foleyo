@@ -11,6 +11,7 @@ import '@vidstack/react/player/styles/default/layouts/video.css';
 import { useCourse } from '@/app/context/course-context';
 import { getLessonProgress } from '@/app/lib/progress-store';
 import { useNotes, useCourseNotes } from '@/app/lib/use-notes';
+import { FOCUS_RING } from '@/app/components/focus-ring';
 import { MKV_WARNING } from '@/app/types';
 
 export function VideoPlayer() {
@@ -33,9 +34,13 @@ export function VideoPlayer() {
   const playerContainerRef = useRef<HTMLDivElement>(null);
   const hasRestoredRef = useRef<string | null>(null);
   const wasFullscreenRef = useRef(false);
-  const [isReady, setIsReady] = useState(false);
+  // The URL that last reported canplay. Comparing it to the current videoUrl
+  // derives readiness without a setState-in-effect reset when lessons change.
+  const [readyUrl, setReadyUrl] = useState<string | null>(null);
   const { note, updateNote, isSaved } = useNotes(course?.name, currentLesson?.id);
   const courseNotes = useCourseNotes(course?.name);
+
+  const isReady = videoUrl !== null && readyUrl === videoUrl;
 
   const hasAnyNotes = Object.keys(courseNotes).length > 0 || note.trim() !== '';
 
@@ -90,11 +95,10 @@ export function VideoPlayer() {
     return 1;
   });
 
-  // Initialize from localStorage (loaded via dynamic ssr:false, so window exists)
-  const ccEnabledRef = useRef<boolean>(
-    typeof window !== 'undefined'
-      ? localStorage.getItem('foleyo_cc_enabled') !== 'false'
-      : true
+  // Initialize once from localStorage (loaded via dynamic ssr:false, so window exists).
+  // Snapshot only — later changes are persisted by onTextTrackChange.
+  const [ccInitial] = useState<boolean>(
+    () => localStorage.getItem('foleyo_cc_enabled') !== 'false'
   );
 
   // Restore position when lesson changes
@@ -109,13 +113,12 @@ export function VideoPlayer() {
     hasRestoredRef.current = currentLesson.id;
   }, [currentLesson, isReady, progress]);
 
-  // Reset restored flag when lesson changes
+  // Reset the restore flag when the video URL changes (refs only — no state to reset)
   useEffect(() => {
     // Before resetting, check if we're currently in fullscreen
     if (document.fullscreenElement) {
       wasFullscreenRef.current = true;
     }
-    setIsReady(false);
     hasRestoredRef.current = null;
   }, [videoUrl]);
 
@@ -141,7 +144,7 @@ export function VideoPlayer() {
   );
 
   const handleCanPlay = useCallback(() => {
-    setIsReady(true);
+    setReadyUrl(videoUrl);
     // Explicitly set the remote playback rate as Vidstack doesn't automatically sync the prop
     if (remote) {
       remote.changePlaybackRate(playbackRate);
@@ -160,7 +163,7 @@ export function VideoPlayer() {
         // Fullscreen request may fail if not triggered by user gesture
       });
     }
-  }, [remote, playbackRate, currentLesson, setLessonDuration]);
+  }, [remote, playbackRate, currentLesson, setLessonDuration, videoUrl]);
 
   // Vidstack passes the new rate as the first argument (detail)
   const handleRateChange = useCallback((rate: number) => {
@@ -180,7 +183,7 @@ export function VideoPlayer() {
   const hasPrev = currentIdx > 0;
   const hasNext = currentIdx < allLessons.length - 1;
 
-  if (!videoUrl || !currentLesson) {
+  if (!currentLesson) {
     return (
       <div className="flex-1 flex items-center justify-center">
         <div className="text-foreground-subtle text-sm">
@@ -206,9 +209,19 @@ export function VideoPlayer() {
         {/* Video player */}
         <div ref={playerContainerRef} className="rounded-xl overflow-hidden bg-black shadow-2xl shadow-black/50 ring-1 ring-white/5 relative aspect-video">
           {requiresPermission ? (
-            <div 
-              className="absolute inset-0 flex items-center justify-center bg-black/80 cursor-pointer group hover:bg-black/70 transition-colors"
+            <div
+              role="button"
+              tabIndex={0}
+              aria-label="Grant file access and resume video"
+              className={`absolute inset-0 flex items-center justify-center bg-black/80 cursor-pointer group hover:bg-black/70 transition-colors ${FOCUS_RING}`}
               onClick={grantPermission}
+              onKeyDown={(e) => {
+                if (e.target !== e.currentTarget) return;
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  grantPermission();
+                }
+              }}
             >
               <div className="flex flex-col items-center">
                 <div className="w-20 h-20 rounded-full bg-accent/90 flex items-center justify-center text-white mb-4 group-hover:scale-110 transition-transform shadow-[0_0_30px_rgba(var(--accent),0.3)]">
@@ -218,6 +231,11 @@ export function VideoPlayer() {
                 </div>
                 <p className="text-white/80 text-sm font-medium">Click to resume video</p>
               </div>
+            </div>
+          ) : !videoUrl ? (
+            <div className="absolute inset-0 flex items-center justify-center bg-black">
+              <div className="w-10 h-10 rounded-full border-2 border-white/20 border-t-white animate-spin" aria-hidden="true" />
+              <span className="sr-only">Loading video…</span>
             </div>
           ) : (
             <MediaPlayer
@@ -230,7 +248,6 @@ export function VideoPlayer() {
               onRateChange={handleRateChange}
               onTextTrackChange={(track) => {
                 const isEnabled = track != null;
-                ccEnabledRef.current = isEnabled;
                 localStorage.setItem('foleyo_cc_enabled', isEnabled.toString());
               }}
               playbackRate={playbackRate}
@@ -247,7 +264,7 @@ export function VideoPlayer() {
                     kind="subtitles"
                     label={track.label}
                     lang={track.language}
-                    default={ccEnabledRef.current && (track.language === 'en' || subtitleTracks.length === 1)}
+                    default={ccInitial && (track.language === 'en' || subtitleTracks.length === 1)}
                   />
                 ))}
               </MediaProvider>
@@ -263,7 +280,8 @@ export function VideoPlayer() {
           <button
             onClick={prevLesson}
             disabled={!hasPrev}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${
+            aria-label="Previous lesson"
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${FOCUS_RING} ${
               hasPrev
                 ? 'bg-surface hover:bg-surface-hover border border-border text-foreground hover:border-foreground-subtle'
                 : 'bg-surface/50 border border-border/50 text-foreground-subtle cursor-not-allowed'
@@ -294,7 +312,8 @@ export function VideoPlayer() {
           <button
             onClick={nextLesson}
             disabled={!hasNext}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${
+            aria-label="Next lesson"
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${FOCUS_RING} ${
               hasNext
                 ? 'bg-accent hover:bg-accent-hover text-white shadow-lg shadow-accent/20'
                 : 'bg-surface/50 border border-border/50 text-foreground-subtle cursor-not-allowed'
@@ -380,6 +399,7 @@ export function VideoPlayer() {
             <textarea
               value={note}
               onChange={(e) => updateNote(e.target.value)}
+              aria-label="Lesson notes"
               placeholder="Write your notes here... (Auto-saves as you type)"
               className="w-full min-h-[160px] p-4 bg-transparent border-none text-sm leading-relaxed text-foreground focus:outline-none focus:ring-0 resize-y placeholder:text-foreground-muted/50"
             />

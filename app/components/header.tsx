@@ -4,6 +4,7 @@ import { useCourse } from '@/app/context/course-context';
 import { useTheme } from '@/app/context/theme-context';
 import { useState } from 'react';
 import Image from 'next/image';
+import { FOCUS_RING } from '@/app/components/focus-ring';
 
 function formatDuration(totalSeconds: number): string {
   if (totalSeconds <= 0) return '0m';
@@ -28,47 +29,50 @@ function ThemeToggle() {
   return (
     <button
       onClick={handleToggle}
-      className="relative p-1.5 rounded-lg hover:bg-surface-hover transition-colors text-foreground-muted hover:text-foreground"
+      suppressHydrationWarning
+      className={`relative p-1.5 rounded-lg hover:bg-surface-hover transition-colors text-foreground-muted hover:text-foreground ${FOCUS_RING}`}
+      aria-label="Toggle color theme"
       title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
     >
       <div className={animating ? 'theme-icon-enter' : ''}>
-        {theme === 'dark' ? (
-          /* Sun icon */
-          <svg
-            width="18"
-            height="18"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <circle cx="12" cy="12" r="5" />
-            <line x1="12" y1="1" x2="12" y2="3" />
-            <line x1="12" y1="21" x2="12" y2="23" />
-            <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
-            <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
-            <line x1="1" y1="12" x2="3" y2="12" />
-            <line x1="21" y1="12" x2="23" y2="12" />
-            <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
-            <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
-          </svg>
-        ) : (
-          /* Moon icon */
-          <svg
-            width="18"
-            height="18"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
-          </svg>
-        )}
+        {/* Both icons are always in the DOM; visibility comes from
+            html[data-theme] CSS so hydration markup is identical. */}
+        <svg
+          className="theme-icon-sun"
+          width="18"
+          height="18"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+        >
+          <circle cx="12" cy="12" r="5" />
+          <line x1="12" y1="1" x2="12" y2="3" />
+          <line x1="12" y1="21" x2="12" y2="23" />
+          <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
+          <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
+          <line x1="1" y1="12" x2="3" y2="12" />
+          <line x1="21" y1="12" x2="23" y2="12" />
+          <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
+          <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
+        </svg>
+        <svg
+          className="theme-icon-moon"
+          width="18"
+          height="18"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+        </svg>
       </div>
     </button>
   );
@@ -96,7 +100,8 @@ export function Header() {
         {course && (
           <button
             onClick={() => closeCourse()}
-            className="flex items-center gap-1.5 pr-3 mr-1 border-r border-border hover:text-foreground text-foreground-subtle transition-colors text-sm font-medium"
+            className={`flex items-center gap-1.5 pr-3 mr-1 border-r border-border hover:text-foreground text-foreground-subtle transition-colors text-sm font-medium ${FOCUS_RING}`}
+            aria-label="Back to all courses"
             title="Back to All Courses"
           >
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -111,7 +116,9 @@ export function Header() {
         {course && (
           <button
             onClick={toggleSidebar}
-            className="p-1.5 rounded-lg hover:bg-surface-hover transition-colors text-foreground-muted hover:text-foreground"
+            className={`p-1.5 rounded-lg hover:bg-surface-hover transition-colors text-foreground-muted hover:text-foreground ${FOCUS_RING}`}
+            aria-label={sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}
+            aria-expanded={sidebarOpen}
             title={sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}
           >
             <svg
@@ -166,9 +173,16 @@ export function Header() {
             <div className="hidden sm:flex items-center gap-3 mr-1">
               <div className="flex flex-col gap-1">
                 <div className="flex items-center gap-2">
-                  <div className="w-32 h-1.5 bg-border rounded-full overflow-hidden">
+                  <div
+                    className="w-32 h-1.5 bg-border rounded-full overflow-hidden"
+                    role="progressbar"
+                    aria-label="Course completion"
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={stats.percentage}
+                  >
                     <div
-                      className="h-full bg-gradient-to-r from-accent to-accent-hover rounded-full transition-all duration-500 ease-out"
+                      className="h-full bg-linear-to-r from-accent to-accent-hover rounded-full transition-all duration-500 ease-out"
                       style={{ width: `${stats.percentage}%` }}
                     />
                   </div>
@@ -229,7 +243,8 @@ export function Header() {
             {/* Open different folder */}
             <button
               onClick={openFolder}
-              className="p-1.5 rounded-lg hover:bg-surface-hover transition-colors text-foreground-muted hover:text-foreground"
+              className={`p-1.5 rounded-lg hover:bg-surface-hover transition-colors text-foreground-muted hover:text-foreground ${FOCUS_RING}`}
+              aria-label="Open different course folder"
               title="Open different course folder"
             >
               <svg

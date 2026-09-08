@@ -31,45 +31,29 @@ export function useTheme() {
   return ctx ?? DEFAULT_THEME;
 }
 
+/**
+ * Read the theme the blocking script in layout.tsx already applied to <html>.
+ * That attribute is the source of truth for the initial render, so the
+ * provider's first client render matches what is on screen — no flash, no
+ * mounted gate.
+ */
+function readInitialTheme(): Theme {
+  if (typeof document === 'undefined') return 'dark';
+  return document.documentElement.dataset.theme === 'light' ? 'light' : 'dark';
+}
+
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [theme, setTheme] = useState<Theme>('dark');
-  const [mounted, setMounted] = useState(false);
+  const [theme, setTheme] = useState<Theme>(readInitialTheme);
 
-  // On mount, read saved preference or system preference
+  // Apply and persist whenever the theme changes
   useEffect(() => {
-    const saved = localStorage.getItem(STORAGE_KEY) as Theme | null;
-    if (saved === 'light' || saved === 'dark') {
-      setTheme(saved);
-    } else if (window.matchMedia('(prefers-color-scheme: light)').matches) {
-      setTheme('light');
-    }
-    setMounted(true);
-  }, []);
-
-  // Apply theme to <html> element whenever it changes
-  useEffect(() => {
-    if (!mounted) return;
-    const root = document.documentElement;
-    root.setAttribute('data-theme', theme);
-    // Also toggle the Tailwind 'dark' class for any components that might use it
-    if (theme === 'dark') {
-      root.classList.add('dark');
-      root.classList.remove('light');
-    } else {
-      root.classList.add('light');
-      root.classList.remove('dark');
-    }
+    document.documentElement.dataset.theme = theme;
     localStorage.setItem(STORAGE_KEY, theme);
-  }, [theme, mounted]);
+  }, [theme]);
 
   const toggleTheme = useCallback(() => {
     setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
   }, []);
-
-  // Prevent flash of wrong theme
-  if (!mounted) {
-    return <>{children}</>;
-  }
 
   return (
     <ThemeContext.Provider value={{ theme, toggleTheme }}>

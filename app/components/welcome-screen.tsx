@@ -8,10 +8,8 @@ import {
   type RecentCourse,
 } from '@/app/lib/recent-courses-store';
 import { getCourseThumbnail } from '@/app/lib/thumbnail-generator';
-
-/** Keyboard focus treatment shared by every interactive element. */
-const FOCUS_RING =
-  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background';
+import { FOCUS_RING } from '@/app/components/focus-ring';
+import { ErrorAlert } from '@/app/components/error-alert';
 
 /** The label style that structures the whole page — mono, uppercase, tracked out. */
 const LABEL =
@@ -215,7 +213,14 @@ function LibraryRow({
         <span className="font-mono text-[11px] leading-none text-foreground-muted">
           {course.completedLessons} / {course.totalLessons} · {course.percentage}%
         </span>
-        <div className="h-1 w-28 overflow-hidden rounded-full bg-border">
+        <div
+          className="h-1 w-28 overflow-hidden rounded-full bg-border"
+          role="progressbar"
+          aria-label={`${course.name} completion`}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={course.percentage}
+        >
           <div
             className={`h-full rounded-full transition-all duration-500 ease-out ${
               complete ? 'bg-success' : 'bg-accent'
@@ -498,14 +503,7 @@ export function WelcomeScreen() {
             )}
           </div>
 
-          {error && (
-            <div
-              role="alert"
-              className="mt-4 max-w-xl border-l-2 border-danger bg-danger/10 px-4 py-2.5 text-sm leading-relaxed text-danger"
-            >
-              {error}
-            </div>
-          )}
+          {error && <ErrorAlert message={error} className="mt-4 max-w-xl" />}
         </header>
 
         {loadingRecent ? (
