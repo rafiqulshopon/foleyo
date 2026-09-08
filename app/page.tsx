@@ -8,7 +8,7 @@ import { Sidebar } from '@/app/components/sidebar';
 import { VideoPlayer } from '@/app/components/video-player-wrapper';
 import { WelcomeScreen } from '@/app/components/welcome-screen';
 import { ErrorAlert } from '@/app/components/error-alert';
-import { MKV_WARNING } from '@/app/types';
+import { CODEC_WARNING } from '@/app/types';
 import { useSyncExternalStore, useState } from 'react';
 
 // Feature detection can't change at runtime — a no-op subscription is enough.
@@ -100,7 +100,7 @@ function CourseApp() {
               <line x1="12" y1="17" x2="12.01" y2="17" />
             </svg>
             <span>
-              Some lessons are MKV or TS files. {MKV_WARNING}
+              Some lessons are MKV or MOV files. {CODEC_WARNING}
             </span>
           </div>
           <button

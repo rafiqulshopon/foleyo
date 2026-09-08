@@ -74,7 +74,7 @@ MyCourse/
 - **Top-level subfolders** = Modules
 - **Video files inside** = Lessons
 - Numeric prefixes (`01_`, `02_`) define sort order — they're stripped from display names
-- Supports `.mp4`, `.mkv`, `.webm`, `.mov`
+- Supports `.mp4`, `.m4v`, `.webm`, `.ogv`, `.mkv`, `.mov` — everything Chromium's video element can demux
 - Videos directly in root folder work too (treated as a single "Lessons" module)
 
 ---
@@ -230,7 +230,8 @@ npm run dev
 ## ⚠️ Known Limitations
 
 - **Browser support**: Only works in Chromium browsers (Chrome, Edge, Brave, Arc) — Firefox and Safari don't support the File System Access API
-- **MKV files**: `.mkv` with H.265/HEVC codec may not play in Chrome. H.264 inside MKV works fine. Convert to MP4 (H.264) for guaranteed compatibility
+- **MKV & MOV files**: these containers play in Chrome, but depend on the codecs inside — H.264/AAC works; H.265/HEVC needs hardware decoding, Dolby Digital (AC-3) and ProRes don't play. Convert to MP4 (H.264) for guaranteed compatibility
+- **MPEG-TS (`.ts`) files**: browsers can't play raw TS — remux to MP4 without re-encoding when it holds H.264/AAC: `ffmpeg -i input.ts -c copy output.mp4`
 - **No mobile support**: File System Access API is desktop-only
 - **Large courses**: Courses with 500+ lessons may take a moment to parse on first open
 

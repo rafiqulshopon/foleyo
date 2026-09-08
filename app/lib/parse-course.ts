@@ -1,4 +1,11 @@
-import { Course, Module, Lesson, VIDEO_EXTENSIONS, SubtitleInfo } from '@/app/types';
+import {
+  Course,
+  Module,
+  Lesson,
+  VIDEO_EXTENSIONS,
+  SUBTITLE_EXTENSIONS,
+  SubtitleInfo,
+} from '@/app/types';
 import { dedupeSubtitles } from '@/app/lib/subtitles';
 
 /**
@@ -73,7 +80,7 @@ async function scanDirectory(
       const lower = entry.name.toLowerCase();
       if (isVideoFile(entry.name)) {
         videoFiles.push({ name: entry.name, handle: entry });
-      } else if (lower.endsWith('.srt') || lower.endsWith('.vtt')) {
+      } else if (SUBTITLE_EXTENSIONS.some((ext) => lower.endsWith(ext))) {
         subtitleFiles.push({ name: entry.name, handle: entry });
       }
     } else if (entry.kind === 'directory') {

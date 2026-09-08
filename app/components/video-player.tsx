@@ -20,15 +20,17 @@ import {
 } from "@vidstack/react/player/layouts/default";
 import "@vidstack/react/player/styles/default/theme.css";
 import "@vidstack/react/player/styles/default/layouts/video.css";
-import {
-  useCourse,
-  AUTO_ADVANCE_DELAY_MS,
-} from "@/app/context/course-context";
+import { useCourse, AUTO_ADVANCE_DELAY_MS } from "@/app/context/course-context";
 import { useLessonDurations } from "@/app/context/lesson-durations-context";
 import { getLessonProgress } from "@/app/lib/progress-store";
 import { useNotes, useCourseNotes } from "@/app/lib/use-notes";
 import { FOCUS_RING } from "@/app/components/focus-ring";
-import { MKV_WARNING, type Lesson } from "@/app/types";
+import {
+  CODEC_WARNING,
+  getVideoMimeType,
+  hasCodecRisk,
+  type Lesson,
+} from "@/app/types";
 
 export function VideoPlayer() {
   const {
@@ -221,6 +223,10 @@ export function VideoPlayer() {
     );
   }
 
+  // MIME hint when vidstack knows the container; a plain src otherwise —
+  // the video provider still plays MKV/MOV (the browser sniffs blob content).
+  const videoMimeType = getVideoMimeType(currentLesson.fileName);
+
   return (
     <div className="flex-1 flex flex-col items-center overflow-y-auto">
       <div className="w-full max-w-240 px-4 py-6 animate-fade-in">
@@ -290,7 +296,7 @@ export function VideoPlayer() {
           ) : (
             <MediaPlayer
               ref={playerRef}
-              src={{ src: videoUrl, type: "video/mp4" }}
+              src={videoMimeType ? { src: videoUrl, type: videoMimeType } : videoUrl}
               crossOrigin=""
               onTimeUpdate={handleTimeUpdate}
               onCanPlay={handleCanPlay}
@@ -396,8 +402,8 @@ export function VideoPlayer() {
           </button>
         </div>
 
-        {/* MKV warning */}
-        {currentLesson.fileName.toLowerCase().endsWith(".mkv") && (
+        {/* Codec-risk warning (MKV/MOV may contain codecs Chrome can't decode) */}
+        {hasCodecRisk(currentLesson.fileName) && (
           <div className="mt-4 px-4 py-3 rounded-xl bg-warning/10 border border-warning/20 text-warning text-xs flex items-start gap-2">
             <svg
               width="16"
@@ -414,7 +420,7 @@ export function VideoPlayer() {
               <line x1="12" y1="9" x2="12" y2="13" />
               <line x1="12" y1="17" x2="12.01" y2="17" />
             </svg>
-            <span>{MKV_WARNING}</span>
+            <span>{CODEC_WARNING}</span>
           </div>
         )}
 

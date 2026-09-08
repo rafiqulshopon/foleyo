@@ -147,4 +147,36 @@ describe('parseCourseDirectory', () => {
     expect(course.modules).toHaveLength(0);
     expect(course.totalLessons).toBe(0);
   });
+
+  it('accepts every browser-playable extension (mp4, m4v, webm, ogv, mkv, mov)', async () => {
+    const root = new FakeDirHandle('Course');
+    root.addFile('01_A.mp4');
+    root.addFile('02_B.m4v');
+    root.addFile('03_C.webm');
+    root.addFile('04_D.ogv');
+    root.addFile('05_E.mkv');
+    root.addFile('06_F.mov');
+
+    const course = await parseCourseDirectory(root);
+    expect(course.totalLessons).toBe(6);
+  });
+
+  it('ignores MPEG-TS files — browsers cannot demux them (and .ts collides with TypeScript sources)', async () => {
+    const root = new FakeDirHandle('Course');
+    root.addFile('stream-recording.ts');
+    root.addFile('01_Real.mp4');
+
+    const course = await parseCourseDirectory(root);
+    expect(course.totalLessons).toBe(1);
+    expect(course.modules[0].lessons[0].fileName).toBe('01_Real.mp4');
+  });
+
+  it('matches video files case-insensitively', async () => {
+    const root = new FakeDirHandle('Course');
+    root.addFile('01_Course.MP4');
+    root.addFile('02_Lesson.WebM');
+
+    const course = await parseCourseDirectory(root);
+    expect(course.totalLessons).toBe(2);
+  });
 });

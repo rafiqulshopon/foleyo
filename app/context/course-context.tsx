@@ -10,7 +10,7 @@ import {
   useRef,
   type ReactNode,
 } from 'react';
-import { Course, Lesson, CourseProgress } from '@/app/types';
+import { Course, Lesson, CourseProgress, hasCodecRisk } from '@/app/types';
 import { parseCourseDirectory } from '@/app/lib/parse-course';
 import { generateCourseThumbnail } from '@/app/lib/thumbnail-generator';
 import {
@@ -209,12 +209,9 @@ export function CourseProvider({ children }: { children: ReactNode }) {
     async (dirHandle: FileSystemDirectoryHandle, parsedCourse: Course) => {
       dirHandleRef.current = dirHandle;
 
-      // Check for MKV files
+      // Check for codec-risk containers (MKV/MOV)
       const hasUnsupported = parsedCourse.modules.some((m) =>
-        m.lessons.some((l) => {
-          const lower = l.fileName.toLowerCase();
-          return lower.endsWith('.mkv') || lower.endsWith('.ts');
-        })
+        m.lessons.some((l) => hasCodecRisk(l.fileName))
       );
       setHasUnsupportedFormat(hasUnsupported);
 
@@ -321,7 +318,7 @@ export function CourseProvider({ children }: { children: ReactNode }) {
 
       if (parsedCourse.totalLessons === 0) {
         setError(
-          'No video files found in the selected folder. Make sure your course folder contains .mp4, .mkv, .webm, or .mov files.'
+          'No video files found in the selected folder. Make sure your course folder contains .mp4, .m4v, .webm, .ogv, .mkv, or .mov files.'
         );
         setIsLoading(false);
         return;
@@ -596,10 +593,7 @@ export function CourseProvider({ children }: { children: ReactNode }) {
       dirHandleRef.current = dirHandle;
 
       const hasUnsupported = courseCache.modules.some((m) =>
-        m.lessons.some((l) => {
-          const lower = l.fileName.toLowerCase();
-          return lower.endsWith('.mkv') || lower.endsWith('.ts');
-        })
+        m.lessons.some((l) => hasCodecRisk(l.fileName))
       );
       setHasUnsupportedFormat(hasUnsupported);
       setCourse(courseCache);

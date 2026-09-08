@@ -10,6 +10,7 @@ import {
 import { getCourseThumbnail } from '@/app/lib/thumbnail-generator';
 import { FOCUS_RING } from '@/app/components/focus-ring';
 import { ErrorAlert } from '@/app/components/error-alert';
+import { VIDEO_EXTENSIONS, SUBTITLE_EXTENSIONS } from '@/app/types';
 
 /** The label style that structures the whole page — mono, uppercase, tracked out. */
 const LABEL =
@@ -343,7 +344,7 @@ function Reference() {
           <h3 className={`${LABEL} font-medium`}>Formats</h3>
           <p className="mt-3 font-mono text-[11px] leading-none text-foreground-muted">Video</p>
           <div className="mt-1.5 flex flex-wrap gap-1.5">
-            {['.mp4', '.mkv', '.webm', '.mov', '.ts'].map((ext) => (
+            {VIDEO_EXTENSIONS.map((ext) => (
               <span
                 key={ext}
                 className="rounded-md border border-border-subtle bg-surface px-2 py-1 font-mono text-[11px] text-foreground-muted"
@@ -354,7 +355,7 @@ function Reference() {
           </div>
           <p className="mt-3 font-mono text-[11px] leading-none text-foreground-muted">Subtitles</p>
           <div className="mt-1.5 flex flex-wrap gap-1.5">
-            {['.srt', '.vtt'].map((ext) => (
+            {SUBTITLE_EXTENSIONS.map((ext) => (
               <span
                 key={ext}
                 className="rounded-md border border-border-subtle bg-surface px-2 py-1 font-mono text-[11px] text-foreground-muted"
@@ -364,7 +365,7 @@ function Reference() {
             ))}
           </div>
           <p className="mt-3 text-xs leading-relaxed text-foreground-muted">
-            MKV and TS depend on the codecs inside — H.264 in an MP4 plays everywhere.
+            MKV and MOV depend on the codecs inside — H.264 in an MP4 plays everywhere.
           </p>
         </div>
 

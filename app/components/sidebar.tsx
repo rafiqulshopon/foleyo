@@ -5,7 +5,7 @@ import { useCourse } from '@/app/context/course-context';
 import { getCompletionStats, getLessonProgress } from '@/app/lib/progress-store';
 import { useCourseNotes } from '@/app/lib/use-notes';
 import { FOCUS_RING } from '@/app/components/focus-ring';
-import type { Lesson, Module } from '@/app/types';
+import { hasCodecRisk, type Lesson, type Module } from '@/app/types';
 
 function ModuleItem({
   module,
@@ -119,7 +119,7 @@ function ModuleItem({
           {lessons.map((lesson) => {
             const isCurrentLesson = currentLesson?.id === lesson.id;
             const lessonProgress = getLessonProgress(progress, lesson.id);
-            const isUnsupported = lesson.fileName.toLowerCase().endsWith('.mkv') || lesson.fileName.toLowerCase().endsWith('.ts');
+            const isUnsupported = hasCodecRisk(lesson.fileName);
             const formatStr = lesson.fileName.split('.').pop()?.toUpperCase();
 
             return (
