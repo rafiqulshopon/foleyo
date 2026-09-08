@@ -1,11 +1,13 @@
 'use client';
 
+import Link from 'next/link';
 import { CourseProvider, useCourse } from '@/app/context/course-context';
 import { ThemeProvider } from '@/app/context/theme-context';
 import { Header } from '@/app/components/header';
 import { Sidebar } from '@/app/components/sidebar';
 import { VideoPlayer } from '@/app/components/video-player-wrapper';
 import { WelcomeScreen } from '@/app/components/welcome-screen';
+import { MKV_WARNING } from '@/app/types';
 import { useEffect, useState } from 'react';
 
 function BrowserCheck() {
@@ -92,7 +94,7 @@ function CourseApp() {
               <line x1="12" y1="17" x2="12.01" y2="17" />
             </svg>
             <span>
-              Some lessons are MKV or TS files. They may not play in your browser if they use unsupported codecs (e.g. H.265). Consider converting to MP4 (H.264).
+              Some lessons are MKV or TS files. {MKV_WARNING}
             </span>
           </div>
           <button
@@ -130,12 +132,12 @@ function CourseApp() {
             <p className="text-foreground-muted mb-8 max-w-md text-lg">
               The course link is invalid or the course has been removed from your local library.
             </p>
-            <a 
+            <Link
               href="/"
               className="px-6 py-3 bg-accent text-background font-medium rounded-xl hover:bg-accent/90 transition-colors"
             >
               Back to Home
-            </a>
+            </Link>
           </div>
         ) : course ? (
           <>

@@ -162,21 +162,3 @@ export async function getCourseCache(folderName: string): Promise<Course | null>
     return null;
   }
 }
-
-/**
- * Request read permission for a stored directory handle.
- * Returns true if permission was granted.
- */
-export async function requestHandlePermission(
-  folderName: string
-): Promise<boolean> {
-  const handle = await getDirectoryHandle(folderName);
-  if (!handle) return false;
-
-  try {
-    const status = await handle.requestPermission({ mode: 'read' });
-    return status === 'granted';
-  } catch {
-    return false;
-  }
-}

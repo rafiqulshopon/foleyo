@@ -109,7 +109,7 @@ export async function getCourseThumbnail(courseId: string): Promise<string | nul
   try {
     const cached = await get(`foleyo_thumb_${courseId}`);
     return cached ? (cached as string) : null;
-  } catch (e) {
+  } catch {
     return null;
   }
 }

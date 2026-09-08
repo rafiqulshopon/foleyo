@@ -66,7 +66,7 @@ export function useNotes(courseId: string | undefined, lessonId: string | undefi
       } else {
         setNote('');
       }
-    } catch (e) {
+    } catch {
       setNote('');
     }
   }, [courseId, lessonId]);
@@ -106,7 +106,7 @@ export function useCourseNotes(courseId: string | undefined) {
     try {
       const stored = localStorage.getItem(storageKey);
       setNotes(stored ? JSON.parse(stored) : {});
-    } catch (e) {
+    } catch {
       setNotes({});
     }
   }, [courseId]);

@@ -1,4 +1,5 @@
 import { Course, Module, Lesson, VIDEO_EXTENSIONS, SubtitleInfo } from '@/app/types';
+import { dedupeSubtitles } from '@/app/lib/subtitles';
 
 /**
  * Clean a filename into a human-readable title.
@@ -161,14 +162,7 @@ export async function parseCourseDirectory(
         });
 
       // Deduplicate by language, preferring VTT over SRT
-      const subtitlesMap = new Map<string, typeof rawSubtitles[0]>();
-      rawSubtitles.forEach(sub => {
-        const existing = subtitlesMap.get(sub.language);
-        if (!existing || sub.format === 'vtt') {
-          subtitlesMap.set(sub.language, sub);
-        }
-      });
-      const subtitles: SubtitleInfo[] = Array.from(subtitlesMap.values());
+      const subtitles: SubtitleInfo[] = dedupeSubtitles(rawSubtitles);
 
       lessons.push({
         id: `${moduleId}/${video.name}`,

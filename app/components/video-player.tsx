@@ -11,6 +11,7 @@ import '@vidstack/react/player/styles/default/layouts/video.css';
 import { useCourse } from '@/app/context/course-context';
 import { getLessonProgress } from '@/app/lib/progress-store';
 import { useNotes, useCourseNotes } from '@/app/lib/use-notes';
+import { MKV_WARNING } from '@/app/types';
 
 export function VideoPlayer() {
   const {
@@ -89,14 +90,12 @@ export function VideoPlayer() {
     return 1;
   });
 
-  const ccEnabledRef = useRef<boolean>(true);
-  
-  // Initialize from localStorage only once on mount
-  useState(() => {
-    if (typeof window !== 'undefined') {
-      ccEnabledRef.current = localStorage.getItem('foleyo_cc_enabled') !== 'false';
-    }
-  });
+  // Initialize from localStorage (loaded via dynamic ssr:false, so window exists)
+  const ccEnabledRef = useRef<boolean>(
+    typeof window !== 'undefined'
+      ? localStorage.getItem('foleyo_cc_enabled') !== 'false'
+      : true
+  );
 
   // Restore position when lesson changes
   useEffect(() => {
@@ -161,7 +160,7 @@ export function VideoPlayer() {
         // Fullscreen request may fail if not triggered by user gesture
       });
     }
-  }, [remote, playbackRate]);
+  }, [remote, playbackRate, currentLesson, setLessonDuration]);
 
   // Vidstack passes the new rate as the first argument (detail)
   const handleRateChange = useCallback((rate: number) => {
@@ -218,13 +217,6 @@ export function VideoPlayer() {
                   </svg>
                 </div>
                 <p className="text-white/80 text-sm font-medium">Click to resume video</p>
-              </div>
-            </div>
-          ) : !videoUrl ? (
-            <div className="absolute inset-0 flex items-center justify-center bg-black/80">
-              <div className="flex flex-col items-center gap-3">
-                <div className="w-8 h-8 border-4 border-accent border-t-transparent rounded-full animate-spin"></div>
-                <p className="text-white/60 text-sm">Loading video...</p>
               </div>
             </div>
           ) : (
@@ -343,11 +335,7 @@ export function VideoPlayer() {
               <line x1="12" y1="9" x2="12" y2="13" />
               <line x1="12" y1="17" x2="12.01" y2="17" />
             </svg>
-            <span>
-              This is an MKV file. It may not play if it uses unsupported codecs
-              like H.265/HEVC. If the video doesn&apos;t load, consider converting to
-              MP4 (H.264).
-            </span>
+            <span>{MKV_WARNING}</span>
           </div>
         )}
 

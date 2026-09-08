@@ -29,7 +29,7 @@ import {
   checkHandlePermission,
   type RecentCourse,
 } from '@/app/lib/recent-courses-store';
-import { loadSubtitle } from '@/app/lib/subtitles';
+import { loadSubtitle, dedupeSubtitles, getSubtitleLabel } from '@/app/lib/subtitles';
 
 export interface SubtitleTrack {
   src: string;
@@ -205,40 +205,15 @@ export function CourseProvider({ children }: { children: ReactNode }) {
       if (lesson.subtitles && lesson.subtitles.length > 0) {
         try {
           // Deduplicate here to handle existing cached courses
-          const uniqueSubtitles = new Map<string, typeof lesson.subtitles[0]>();
-          lesson.subtitles.forEach((sub) => {
-            const existing = uniqueSubtitles.get(sub.language);
-            if (!existing || sub.format === 'vtt') {
-              uniqueSubtitles.set(sub.language, sub);
-            }
-          });
+          const uniqueSubtitles = dedupeSubtitles(lesson.subtitles);
 
           const tracks = await Promise.all(
-            Array.from(uniqueSubtitles.values()).map(async (sub) => {
+            uniqueSubtitles.map(async (sub) => {
               const src = await loadSubtitle(sub.fileHandle, sub.format);
-              
-              // Map simple languages to labels, fallback to uppercase
-              const labels: Record<string, string> = {
-                en: 'English',
-                es: 'Spanish',
-                fr: 'French',
-                de: 'German',
-                it: 'Italian',
-                pt: 'Portuguese',
-                ru: 'Russian',
-                zh: 'Chinese',
-                ja: 'Japanese',
-                ko: 'Korean',
-                ar: 'Arabic',
-                hi: 'Hindi',
-              };
-              
-              const label = labels[sub.language] || sub.language.toUpperCase();
-              
               return {
                 src,
                 language: sub.language,
-                label: label === 'UNKNOWN' ? 'Default' : label,
+                label: getSubtitleLabel(sub.language),
               };
             })
           );
@@ -668,16 +643,6 @@ export function CourseProvider({ children }: { children: ReactNode }) {
                   video.load(); // release resources
                 };
 
-                video.onloadedmetadata = () => {
-                  const dur = video.duration;
-                  cleanup();
-                  if (dur && isFinite(dur) && dur > 0) {
-                    resolve(dur);
-                  } else {
-                    reject(new Error('Invalid duration'));
-                  }
-                };
-
                 video.onerror = () => {
                   cleanup();
                   reject(new Error('Failed to load metadata'));
@@ -792,7 +757,7 @@ export function CourseProvider({ children }: { children: ReactNode }) {
       setProgress(courseProgress);
 
       const allLessons = courseCache.modules.flatMap((m) => m.lessons);
-      let resumeLesson = allLessons.find((l) => l.id === courseProgress!.lastLessonId) || allLessons[0];
+      const resumeLesson = allLessons.find((l) => l.id === courseProgress!.lastLessonId) || allLessons[0];
       
       setCurrentLesson(resumeLesson);
       setRequiresPermission(true);
