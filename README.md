@@ -42,23 +42,17 @@ Point it at a folder on your Mac, and it instantly creates a course interface wi
 | 🎬 **Video Player** | Built on [vidstack](https://vidstack.io) — keyboard shortcuts, speed control, fullscreen |
 | 📊 **Progress Tracking** | Auto-saves position, marks lessons complete, remembers where you left off |
 | ▶️ **Autoplay** | Auto-advance through lessons with a cancelable countdown |
+| 💬 **Subtitles** | `.srt` / `.vtt` files next to a video are auto-detached and attached — SRT converted on the fly |
+| 📝 **Lesson Notes** | Per-lesson notes, auto-saved, exported as Markdown |
+| 🔍 **Lesson Search** | Filter lessons by title straight from the sidebar |
+| 🕐 **Watch Time Stats** | Time watched across the course, completed vs. in-progress |
+| 🖼️ **Thumbnails** | Recent-course cards get a generated thumbnail of the last watched lesson |
 | 🕐 **Recently Played** | Resume any previously opened course in one click |
 | 🌙 **Dark & Light Mode** | Toggle between themes — preference saved automatically |
 | 📱 **Responsive** | Collapsible sidebar, works on smaller screens |
 | 💾 **Persistent** | Course handles saved in IndexedDB, progress in localStorage |
 | 🔐 **Permission Recovery** | Gracefully re-requests file access on revisit |
-
----
-
-## 📸 Screenshots
-
-<div align="center">
-
-> _Dark mode welcome screen with recently played courses_
-
-> _Light mode with sidebar and video player_
-
-</div>
+| 📲 **Installable** | PWA manifest — install it like a native app (Chromium) |
 
 ---
 
@@ -125,7 +119,7 @@ npm start
 | [TypeScript](https://typescriptlang.org) | Type safety |
 | [Tailwind CSS 4](https://tailwindcss.com) | Styling with custom theme |
 | [vidstack](https://vidstack.io) | Modern video player component |
-| [idb-keyval](https://github.com/nicehash/nicehash-calculator) | IndexedDB wrapper for persisting directory handles |
+| [idb-keyval](https://github.com/jakearchibald/idb-keyval) | IndexedDB wrapper for persisting directory handles |
 | File System Access API | Read local files directly in the browser |
 
 ---
@@ -149,23 +143,29 @@ foleyo/
 ├── app/
 │   ├── components/
 │   │   ├── header.tsx          # Top bar with progress, autoplay, theme toggle
-│   │   ├── sidebar.tsx         # Collapsible sidebar with module/lesson list
-│   │   ├── video-player.tsx    # vidstack-based video player
+│   │   ├── sidebar.tsx         # Collapsible sidebar with module/lesson list + search
+│   │   ├── video-player.tsx    # vidstack-based player, notes, auto-advance overlay
 │   │   └── welcome-screen.tsx  # Landing page with folder picker & recent courses
 │   ├── context/
 │   │   ├── course-context.tsx  # Central state: course data, navigation, progress
-│   │   └── theme-context.tsx   # Light/dark mode with localStorage persistence
+│   │   ├── use-video-loader.ts # Blob-URL + subtitle lifecycle for the player
+│   │   └── use-course-history.ts  # URL deep-linking and Escape handling
 │   ├── lib/
+│   │   ├── __tests__/          # Vitest suites (parsing, progress, subtitles, notes)
 │   │   ├── parse-course.ts     # Directory → Course data structure parser
 │   │   ├── progress-store.ts   # localStorage-based progress tracking
-│   │   └── recent-courses-store.ts  # IndexedDB store for recent courses & dir handles
+│   │   ├── recent-courses-store.ts  # IndexedDB store for recent courses & dir handles
+│   │   ├── subtitles.ts        # SRT→VTT conversion + subtitle matching
+│   │   └── use-notes.ts        # Auto-saving per-lesson notes
 │   ├── types/
 │   │   └── file-system.d.ts    # TypeScript declarations for File System Access API
 │   ├── types.ts                # Core data types (Course, Module, Lesson, Progress)
 │   ├── globals.css             # Theme variables, animations, dark/light mode
-│   ├── layout.tsx              # Root layout with fonts
+│   ├── layout.tsx              # Root layout with fonts and metadata
+│   ├── manifest.ts             # PWA manifest
 │   └── page.tsx                # Main entry point
 ├── public/
+├── next.config.ts              # Security headers
 ├── package.json
 └── tsconfig.json
 ```
@@ -201,10 +201,13 @@ git checkout -b feature/your-feature-name
 
 ```bash
 # Type check
-npx tsc --noEmit
+npm run typecheck
 
 # Lint
 npm run lint
+
+# Unit tests
+npm run test
 
 # Dev server
 npm run dev
@@ -219,13 +222,8 @@ npm run dev
 ### Ideas for Contribution
 
 - 🎨 Custom themes / accent color picker
-- 📝 Notes per lesson
-- 🔍 Search / filter lessons
-- 📊 Watch time statistics
-- 🖼️ Thumbnail generation
-- 📱 PWA support for true offline usage
 - 🎧 Audio-only playback mode
-- 📋 Subtitle/caption file support (.srt, .vtt)
+- 📴 Service worker for true offline usage (the app is manifest-only today)
 
 ---
 

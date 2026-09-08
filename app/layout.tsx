@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { Analytics } from "@vercel/analytics/next";
 import "./globals.css";
@@ -13,10 +13,38 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://foleyo.vercel.app";
+
+const description =
+  "Watch your downloaded video courses through a beautiful browser interface. Load a folder, track your progress, and learn offline.";
+
 export const metadata: Metadata = {
-  title: "Foleyo — Offline Course Player",
-  description:
-    "Watch your downloaded video courses through a beautiful browser interface. Load a folder, track your progress, and learn offline.",
+  metadataBase: new URL(siteUrl),
+  title: {
+    default: "Foleyo — Offline Course Player",
+    template: "%s · Foleyo",
+  },
+  description,
+  applicationName: "Foleyo",
+  openGraph: {
+    type: "website",
+    siteName: "Foleyo",
+    title: "Foleyo — Offline Course Player",
+    description,
+    url: "/",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Foleyo — Offline Course Player",
+    description,
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#f5f5f7" },
+    { media: "(prefers-color-scheme: dark)", color: "#0a0a0f" },
+  ],
 };
 
 export default function RootLayout({
