@@ -1,10 +1,15 @@
 'use client';
 
 import { useCourse } from '@/app/context/course-context';
+import { useLessonDurations } from '@/app/context/lesson-durations-context';
 import { useTheme } from '@/app/context/theme-context';
 import { useState } from 'react';
 import Image from 'next/image';
 import { FOCUS_RING } from '@/app/components/focus-ring';
+import {
+  computeWatchTimeStats,
+  getCompletionStats,
+} from '@/app/lib/progress-store';
 
 function formatDuration(totalSeconds: number): string {
   if (totalSeconds <= 0) return '0m';
@@ -81,18 +86,21 @@ function ThemeToggle() {
 export function Header() {
   const {
     course,
+    progress,
     autoplay,
     sidebarOpen,
     toggleAutoplay,
     toggleSidebar,
-    getOverallStats,
-    getWatchTimeStats,
     openFolder,
     closeCourse,
   } = useCourse();
+  const { lessonDurations } = useLessonDurations();
 
-  const stats = getOverallStats();
-  const watchStats = getWatchTimeStats();
+  const stats = getCompletionStats(
+    progress,
+    course ? course.modules.flatMap((m) => m.lessons.map((l) => l.id)) : []
+  );
+  const watchStats = computeWatchTimeStats(course, progress, lessonDurations);
 
   return (
     <header className="h-14 border-b border-border flex items-center justify-between px-4 bg-surface/80 backdrop-blur-md z-20 shrink-0">

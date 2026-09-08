@@ -2,16 +2,15 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useCourse } from '@/app/context/course-context';
-import { getLessonProgress } from '@/app/lib/progress-store';
+import { getCompletionStats, getLessonProgress } from '@/app/lib/progress-store';
 import { useCourseNotes } from '@/app/lib/use-notes';
 import { FOCUS_RING } from '@/app/components/focus-ring';
 import type { Module } from '@/app/types';
 
 function ModuleItem({ module, notes }: { module: Module; notes: Record<string, string> }) {
-  const { currentLesson, selectLesson, progress, markComplete, getModuleStats } =
-    useCourse();
+  const { currentLesson, selectLesson, progress, markComplete } = useCourse();
   const [expanded, setExpanded] = useState(true);
-  const stats = getModuleStats(module.id);
+  const stats = getCompletionStats(progress, module.lessons.map((l) => l.id));
   const isActive = module.lessons.some((l) => l.id === currentLesson?.id);
   const listRef = useRef<HTMLDivElement>(null);
   const activeLessonRef = useRef<HTMLDivElement>(null);

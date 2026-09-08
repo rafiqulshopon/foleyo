@@ -5,8 +5,9 @@ import {
   useContext,
   useState,
   useCallback,
-  useRef,
   useEffect,
+  useMemo,
+  useRef,
   type ReactNode,
 } from 'react';
 import { Course, Lesson, CourseProgress } from '@/app/types';
@@ -18,7 +19,6 @@ import {
   createEmptyProgress,
   updateLessonProgress,
   toggleLessonComplete,
-  getCompletionStats,
 } from '@/app/lib/progress-store';
 import {
   saveRecentCourse,
@@ -29,13 +29,12 @@ import {
   checkHandlePermission,
   type RecentCourse,
 } from '@/app/lib/recent-courses-store';
-import { loadSubtitle, dedupeSubtitles, getSubtitleLabel } from '@/app/lib/subtitles';
+import { useVideoLoader, type SubtitleTrack } from './use-video-loader';
+import { useDurationScanner } from './use-duration-scanner';
+import { useCourseHistory } from './use-course-history';
+import { LessonDurationsProvider } from './lesson-durations-context';
 
-export interface SubtitleTrack {
-  src: string;
-  language: string;
-  label: string;
-}
+export type { SubtitleTrack };
 
 interface CourseContextType {
   // State
@@ -63,10 +62,6 @@ interface CourseContextType {
   markComplete: (lessonId: string) => void;
   updatePosition: (position: number) => void;
   onVideoEnded: () => void;
-  getModuleStats: (moduleId: string) => { completed: number; total: number; percentage: number };
-  getOverallStats: () => { completed: number; total: number; percentage: number };
-  getWatchTimeStats: () => { totalSeconds: number; watchedSeconds: number; remainingSeconds: number; watchedPercentage: number };
-  setLessonDuration: (lessonId: string, duration: number) => void;
   closeCourse: () => void;
   refreshCourse: () => Promise<void>;
   grantPermission: () => Promise<void>;
@@ -83,8 +78,6 @@ export function useCourse() {
 export function CourseProvider({ children }: { children: ReactNode }) {
   const [course, setCourse] = useState<Course | null>(null);
   const [currentLesson, setCurrentLesson] = useState<Lesson | null>(null);
-  const [videoUrl, setVideoUrl] = useState<string | null>(null);
-  const [subtitleTracks, setSubtitleTracks] = useState<SubtitleTrack[]>([]);
   const [progress, setProgress] = useState<CourseProgress>(
     createEmptyProgress('')
   );
@@ -95,141 +88,85 @@ export function CourseProvider({ children }: { children: ReactNode }) {
   const [hasUnsupportedFormat, setHasUnsupportedFormat] = useState(false);
   const [requiresPermission, setRequiresPermission] = useState(false);
   const [invalidLink, setInvalidLink] = useState(false);
-  const [lessonDurations, setLessonDurations] = useState<Record<string, number>>({});
+
+  // Video/subtitle blob-URL lifecycle, background duration scan
+  const { videoUrl, subtitleTracks, loadVideo, showVideo, resetVideo } =
+    useVideoLoader();
+  const { lessonDurations, setLessonDuration } = useDurationScanner(course);
 
   // Track current directory handle for saving to recent courses
   const dirHandleRef = useRef<FileSystemDirectoryHandle | null>(null);
-  const currentUrlRef = useRef<string | null>(null);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Guards the completed-count → recent-course metadata sync so position
+  // ticks (which also change `progress`) don't trigger IndexedDB writes.
+  const lastSyncedCompletedRef = useRef<{ courseName: string; completed: number } | null>(null);
 
-  // Cleanup object URL on unmount or URL change
-  const revokeUrl = useCallback(() => {
-    if (currentUrlRef.current) {
-      URL.revokeObjectURL(currentUrlRef.current);
-      currentUrlRef.current = null;
-    }
-    setSubtitleTracks((prev) => {
-      prev.forEach((track) => URL.revokeObjectURL(track.src));
-      return [];
-    });
-  }, []);
+  // Single persistence funnel: every progress change is written once here.
+  // (Updaters themselves are pure — StrictMode may invoke them twice.)
+  useEffect(() => {
+    if (!progress.courseName) return;
+    saveProgress(progress);
+  }, [progress]);
 
+  const closeCourse = useCallback(
+    async (isPopState = false) => {
+      if (course && dirHandleRef.current) {
+        try {
+          const allLessons = course.modules.flatMap((m) => m.lessons);
+          const completedCount = allLessons.filter(
+            (l) => progress.lessons[l.id]?.completed
+          ).length;
+
+          await updateRecentCourseMetadata(dirHandleRef.current.name, {
+            lastOpenedAt: Date.now(),
+            completedLessons: completedCount,
+            percentage:
+              course.totalLessons > 0
+                ? Math.round((completedCount / course.totalLessons) * 100)
+                : 0,
+          });
+        } catch (e) {
+          console.error('Failed to update recent course metadata on close', e);
+        }
+      }
+
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+        saveTimeoutRef.current = null;
+      }
+
+      resetVideo();
+      setCourse(null);
+      setCurrentLesson(null);
+      dirHandleRef.current = null;
+
+      if (!isPopState) {
+        if (window.history.state?.fromDirectLink) {
+          window.history.replaceState({}, '', '/');
+        } else if (window.history.state?.isCourseOpen) {
+          window.history.back();
+        } else {
+          window.history.pushState({}, '', '/');
+        }
+      }
+    },
+    [course, progress, resetVideo]
+  );
+
+  useCourseHistory(course, closeCourse);
+
+  // Clear a pending debounced position save on unmount
   useEffect(() => {
     return () => {
-      revokeUrl();
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     };
-  }, [revokeUrl]);
-
-  const closeCourse = useCallback(async (isPopState = false) => {
-    if (course && dirHandleRef.current) {
-      try {
-        const allLessons = course.modules.flatMap((m) => m.lessons);
-        const completedCount = allLessons.filter(
-          (l) => progress.lessons[l.id]?.completed
-        ).length;
-        
-        await updateRecentCourseMetadata(dirHandleRef.current.name, {
-          lastOpenedAt: Date.now(),
-          completedLessons: completedCount,
-          percentage:
-            course.totalLessons > 0
-              ? Math.round((completedCount / course.totalLessons) * 100)
-              : 0,
-        });
-      } catch (e) {
-        console.error('Failed to update recent course metadata on close', e);
-      }
-    }
-
-    if (saveTimeoutRef.current) {
-      clearTimeout(saveTimeoutRef.current);
-      saveTimeoutRef.current = null;
-    }
-    
-    revokeUrl();
-    setCourse(null);
-    setCurrentLesson(null);
-    setVideoUrl(null);
-    setSubtitleTracks([]);
-    dirHandleRef.current = null;
-    
-    if (!isPopState) {
-      if (window.history.state?.fromDirectLink) {
-        window.history.replaceState({}, '', '/');
-      } else if (window.history.state?.isCourseOpen) {
-        window.history.back();
-      } else {
-        window.history.pushState({}, '', '/');
-      }
-    }
-  }, [course, progress, revokeUrl]);
-
-  useEffect(() => {
-    const handlePopState = (e: PopStateEvent) => {
-      if (!e.state?.isCourseOpen && course) {
-        closeCourse(true);
-      }
-    };
-    
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && course) {
-        if (['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName || '')) return;
-        closeCourse();
-      }
-    };
-
-    window.addEventListener('popstate', handlePopState);
-    window.addEventListener('keydown', handleKeyDown);
-    return () => {
-      window.removeEventListener('popstate', handlePopState);
-      window.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [course, closeCourse]);
+  }, []);
 
   // Get all lessons flat
   const getAllLessons = useCallback((): Lesson[] => {
     if (!course) return [];
     return course.modules.flatMap((m) => m.lessons);
   }, [course]);
-
-  // Load a video file, subtitles, and create object URLs
-  const loadVideo = useCallback(
-    async (lesson: Lesson): Promise<string> => {
-      revokeUrl();
-      const file = await lesson.fileHandle.getFile();
-      const url = URL.createObjectURL(file);
-      currentUrlRef.current = url;
-      
-      // Load subtitles if present
-      if (lesson.subtitles && lesson.subtitles.length > 0) {
-        try {
-          // Deduplicate here to handle existing cached courses
-          const uniqueSubtitles = dedupeSubtitles(lesson.subtitles);
-
-          const tracks = await Promise.all(
-            uniqueSubtitles.map(async (sub) => {
-              const src = await loadSubtitle(sub.fileHandle, sub.format);
-              return {
-                src,
-                language: sub.language,
-                label: getSubtitleLabel(sub.language),
-              };
-            })
-          );
-          setSubtitleTracks(tracks);
-        } catch (e) {
-          console.error('Failed to load subtitles', e);
-          setSubtitleTracks([]);
-        }
-      } else {
-        setSubtitleTracks([]);
-      }
-      
-      return url;
-    },
-    [revokeUrl]
-  );
 
   /**
    * Shared logic: once we have a dirHandle and a parsed course,
@@ -250,11 +187,10 @@ export function CourseProvider({ children }: { children: ReactNode }) {
 
       setCourse(parsedCourse);
 
-      // Load progress
+      // Load progress (persisted by the save funnel when it's fresh)
       let courseProgress = loadProgress(parsedCourse.name);
       if (!courseProgress) {
         courseProgress = createEmptyProgress(parsedCourse.name);
-        saveProgress(courseProgress);
       }
       setProgress(courseProgress);
 
@@ -274,7 +210,7 @@ export function CourseProvider({ children }: { children: ReactNode }) {
 
       if (resumeLesson) {
         const url = await loadVideo(resumeLesson);
-        setVideoUrl(url);
+        showVideo(url);
         setCurrentLesson(resumeLesson);
       }
 
@@ -288,6 +224,12 @@ export function CourseProvider({ children }: { children: ReactNode }) {
       const completedCount = allLessons.filter(
         (l) => courseProgress!.lessons[l.id]?.completed
       ).length;
+      // saveRecentCourse below writes this count; remember it so the
+      // metadata-sync effect doesn't immediately write the same thing.
+      lastSyncedCompletedRef.current = {
+        courseName: parsedCourse.name,
+        completed: completedCount,
+      };
 
       const recentEntry: RecentCourse = {
         name: parsedCourse.name,
@@ -304,7 +246,7 @@ export function CourseProvider({ children }: { children: ReactNode }) {
             : 0,
       };
       await saveRecentCourse(recentEntry, dirHandle);
-      
+
       // Trigger thumbnail generation in the background
       const firstLesson = parsedCourse.modules[0]?.lessons[0];
       if (firstLesson) {
@@ -323,7 +265,7 @@ export function CourseProvider({ children }: { children: ReactNode }) {
         window.history.replaceState({ isCourseOpen: true, fromDirectLink: false }, '', urlParam);
       }
     },
-    [loadVideo]
+    [loadVideo, showVideo]
   );
 
   // Open folder picker
@@ -415,18 +357,15 @@ export function CourseProvider({ children }: { children: ReactNode }) {
       setError(null);
       try {
         const url = await loadVideo(lesson);
-        setVideoUrl(url);
+        showVideo(url);
         setCurrentLesson(lesson);
-        setProgress((prev) => {
-          const updated = updateLessonProgress(prev, lesson.id, {});
-          return updated;
-        });
+        setProgress((prev) => updateLessonProgress(prev, lesson.id, {}));
       } catch (e) {
         console.error('Error loading lesson:', e);
         setError(`Failed to load video: ${e instanceof Error ? e.message : 'Unknown error'}`);
       }
     },
-    [loadVideo]
+    [loadVideo, showVideo]
   );
 
   // Refresh course to detect new files
@@ -481,12 +420,12 @@ export function CourseProvider({ children }: { children: ReactNode }) {
     if (!currentLesson) return;
 
     // Mark current lesson as complete
-    setProgress((prev) => {
-      return updateLessonProgress(prev, currentLesson.id, {
+    setProgress((prev) =>
+      updateLessonProgress(prev, currentLesson.id, {
         completed: true,
         lastPosition: 0,
-      });
-    });
+      })
+    );
 
     // Auto-play next if enabled
     if (autoplay) {
@@ -510,27 +449,39 @@ export function CourseProvider({ children }: { children: ReactNode }) {
     setSidebarOpen((prev) => !prev);
   }, []);
 
-  // Mark lesson complete/incomplete
+  // Mark lesson complete/incomplete (updater is pure; the metadata sync
+  // effect below reacts to the completed-count change)
   const markComplete = useCallback((lessonId: string) => {
-    setProgress((prev) => {
-      const updated = toggleLessonComplete(prev, lessonId);
-      // Update recent course metadata in background
-      if (course && dirHandleRef.current) {
-        const allLessons = course.modules.flatMap((m) => m.lessons);
-        const completedCount = allLessons.filter(
-          (l) => updated.lessons[l.id]?.completed
-        ).length;
-        updateRecentCourseMetadata(dirHandleRef.current.name, {
-          completedLessons: completedCount,
-          percentage:
-            course.totalLessons > 0
-              ? Math.round((completedCount / course.totalLessons) * 100)
-              : 0,
-        });
-      }
-      return updated;
-    });
-  }, [course]);
+    setProgress((prev) => toggleLessonComplete(prev, lessonId));
+  }, []);
+
+  // Sync the completed count to the recent-courses card — only when the
+  // count actually changes for this course.
+  useEffect(() => {
+    if (!course || !dirHandleRef.current) return;
+
+    const allLessons = course.modules.flatMap((m) => m.lessons);
+    const completedCount = allLessons.filter(
+      (l) => progress.lessons[l.id]?.completed
+    ).length;
+
+    const last = lastSyncedCompletedRef.current;
+    if (last && last.courseName === course.name && last.completed === completedCount) {
+      return;
+    }
+    lastSyncedCompletedRef.current = {
+      courseName: course.name,
+      completed: completedCount,
+    };
+
+    updateRecentCourseMetadata(dirHandleRef.current.name, {
+      completedLessons: completedCount,
+      percentage:
+        course.totalLessons > 0
+          ? Math.round((completedCount / course.totalLessons) * 100)
+          : 0,
+    }).catch((e) => console.error('Failed to sync course metadata', e));
+  }, [course, progress]);
 
   // Update playback position (debounced save)
   const updatePosition = useCallback(
@@ -540,164 +491,15 @@ export function CourseProvider({ children }: { children: ReactNode }) {
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
 
       saveTimeoutRef.current = setTimeout(() => {
-        setProgress((prev) => {
-          return updateLessonProgress(prev, currentLesson.id, {
+        setProgress((prev) =>
+          updateLessonProgress(prev, currentLesson.id, {
             lastPosition: position,
-          });
-        });
+          })
+        );
       }, 2000); // Save every 2 seconds at most
     },
     [currentLesson]
   );
-
-  // Get module completion stats
-  const getModuleStats = useCallback(
-    (moduleId: string) => {
-      if (!course) return { completed: 0, total: 0, percentage: 0 };
-      const mod = course.modules.find((m) => m.id === moduleId);
-      if (!mod) return { completed: 0, total: 0, percentage: 0 };
-      return getCompletionStats(
-        progress,
-        mod.lessons.map((l) => l.id)
-      );
-    },
-    [course, progress]
-  );
-
-  // Get overall completion stats
-  const getOverallStats = useCallback(() => {
-    if (!course) return { completed: 0, total: 0, percentage: 0 };
-    const allIds = course.modules.flatMap((m) => m.lessons.map((l) => l.id));
-    return getCompletionStats(progress, allIds);
-  }, [course, progress]);
-
-  // Set duration for a lesson (called from video player when metadata loads)
-  const setLessonDuration = useCallback((lessonId: string, duration: number) => {
-    if (!duration || !isFinite(duration) || duration <= 0) return;
-    setLessonDurations(prev => {
-      // Only update if value changed to avoid unnecessary re-renders
-      if (prev[lessonId] === Math.round(duration)) return prev;
-      return { ...prev, [lessonId]: Math.round(duration) };
-    });
-  }, []);
-
-  // Get watch time stats across all lessons
-  const getWatchTimeStats = useCallback(() => {
-    if (!course) return { totalSeconds: 0, watchedSeconds: 0, remainingSeconds: 0, watchedPercentage: 0 };
-
-    const allLessons = course.modules.flatMap(m => m.lessons);
-    let totalSeconds = 0;
-    let watchedSeconds = 0;
-
-    for (const lesson of allLessons) {
-      const dur = lessonDurations[lesson.id];
-      if (dur && dur > 0) {
-        totalSeconds += dur;
-        const lessonProg = progress.lessons[lesson.id];
-        if (lessonProg?.completed) {
-          // Completed lessons count as fully watched
-          watchedSeconds += dur;
-        } else if (lessonProg?.lastPosition > 0) {
-          // Partially watched
-          watchedSeconds += Math.min(lessonProg.lastPosition, dur);
-        }
-      }
-    }
-
-    const remainingSeconds = Math.max(0, totalSeconds - watchedSeconds);
-    const watchedPercentage = totalSeconds > 0 ? Math.round((watchedSeconds / totalSeconds) * 100) : 0;
-
-    return { totalSeconds, watchedSeconds, remainingSeconds, watchedPercentage };
-  }, [course, lessonDurations, progress]);
-
-  // Background scan: extract duration metadata from ALL videos in the course
-  useEffect(() => {
-    if (!course) return;
-
-    let cancelled = false;
-    const blobUrls: string[] = [];
-
-    async function scanDurations() {
-      const allLessons = course!.modules.flatMap(m => m.lessons);
-
-      // Process in small batches to avoid overwhelming the browser
-      const BATCH_SIZE = 3;
-      for (let i = 0; i < allLessons.length; i += BATCH_SIZE) {
-        if (cancelled) break;
-
-        const batch = allLessons.slice(i, i + BATCH_SIZE);
-        await Promise.all(
-          batch.map(async (lesson) => {
-            if (cancelled) return;
-
-            // Skip if we already have the duration
-            if (lessonDurations[lesson.id]) return;
-
-            try {
-              const file = await lesson.fileHandle.getFile();
-              const url = URL.createObjectURL(file);
-              blobUrls.push(url);
-
-              const duration = await new Promise<number>((resolve, reject) => {
-                const video = document.createElement('video');
-                video.preload = 'metadata';
-                video.muted = true;
-
-                const cleanup = () => {
-                  video.removeAttribute('src');
-                  video.load(); // release resources
-                };
-
-                video.onerror = () => {
-                  cleanup();
-                  reject(new Error('Failed to load metadata'));
-                };
-
-                // Timeout after 10s per video
-                const timer = setTimeout(() => {
-                  cleanup();
-                  reject(new Error('Metadata timeout'));
-                }, 10000);
-
-                video.onloadedmetadata = () => {
-                  clearTimeout(timer);
-                  const dur = video.duration;
-                  cleanup();
-                  if (dur && isFinite(dur) && dur > 0) {
-                    resolve(dur);
-                  } else {
-                    reject(new Error('Invalid duration'));
-                  }
-                };
-
-                video.src = url;
-              });
-
-              if (!cancelled) {
-                setLessonDurations(prev => ({
-                  ...prev,
-                  [lesson.id]: Math.round(duration),
-                }));
-              }
-            } catch {
-              // Silently skip videos that fail metadata extraction
-            }
-          })
-        );
-      }
-    }
-
-    scanDurations();
-
-    return () => {
-      cancelled = true;
-      // Clean up any remaining blob URLs
-      blobUrls.forEach(url => {
-        try { URL.revokeObjectURL(url); } catch { /* ignore */ }
-      });
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [course]);
 
   const grantPermission = useCallback(async () => {
     if (!dirHandleRef.current || !course) return;
@@ -707,13 +509,13 @@ export function CourseProvider({ children }: { children: ReactNode }) {
         setRequiresPermission(false);
         if (currentLesson) {
           const url = await loadVideo(currentLesson);
-          setVideoUrl(url);
+          showVideo(url);
         }
       }
     } catch (e) {
       console.warn('Failed to grant permission', e);
     }
-  }, [course, currentLesson, loadVideo]);
+  }, [course, currentLesson, loadVideo, showVideo]);
 
   // Read URL param on mount to restore cached course state
   useEffect(() => {
@@ -745,7 +547,7 @@ export function CourseProvider({ children }: { children: ReactNode }) {
       }
 
       dirHandleRef.current = dirHandle;
-      
+
       const hasUnsupported = courseCache.modules.some((m) =>
         m.lessons.some((l) => {
           const lower = l.fileName.toLowerCase();
@@ -763,7 +565,7 @@ export function CourseProvider({ children }: { children: ReactNode }) {
 
       const allLessons = courseCache.modules.flatMap((m) => m.lessons);
       const resumeLesson = allLessons.find((l) => l.id === courseProgress!.lastLessonId) || allLessons[0];
-      
+
       setCurrentLesson(resumeLesson);
       setRequiresPermission(true);
       setIsLoading(false);
@@ -774,41 +576,71 @@ export function CourseProvider({ children }: { children: ReactNode }) {
     return () => { isCancelled = true; };
   }, [initializeCourse]);
 
+  const value = useMemo(
+    () => ({
+      course,
+      currentLesson,
+      videoUrl,
+      subtitleTracks,
+      progress,
+      autoplay,
+      sidebarOpen,
+      isLoading,
+      error,
+      hasUnsupportedFormat,
+      requiresPermission,
+      invalidLink,
+      openFolder,
+      resumeRecentCourse,
+      selectLesson,
+      nextLesson,
+      prevLesson,
+      toggleAutoplay,
+      toggleSidebar,
+      markComplete,
+      updatePosition,
+      onVideoEnded,
+      closeCourse,
+      refreshCourse,
+      grantPermission,
+    }),
+    [
+      course,
+      currentLesson,
+      videoUrl,
+      subtitleTracks,
+      progress,
+      autoplay,
+      sidebarOpen,
+      isLoading,
+      error,
+      hasUnsupportedFormat,
+      requiresPermission,
+      invalidLink,
+      openFolder,
+      resumeRecentCourse,
+      selectLesson,
+      nextLesson,
+      prevLesson,
+      toggleAutoplay,
+      toggleSidebar,
+      markComplete,
+      updatePosition,
+      onVideoEnded,
+      closeCourse,
+      refreshCourse,
+      grantPermission,
+    ]
+  );
+
   return (
-    <CourseContext.Provider
-      value={{
-        course,
-        currentLesson,
-        videoUrl,
-        subtitleTracks,
-        progress,
-        autoplay,
-        sidebarOpen,
-        isLoading,
-        error,
-        hasUnsupportedFormat,
-        requiresPermission,
-        invalidLink,
-        openFolder,
-        resumeRecentCourse,
-        selectLesson,
-        nextLesson,
-        prevLesson,
-        toggleAutoplay,
-        toggleSidebar,
-        markComplete,
-        updatePosition,
-        onVideoEnded,
-        getModuleStats,
-        getOverallStats,
-        getWatchTimeStats,
-        setLessonDuration,
-        closeCourse,
-        refreshCourse,
-        grantPermission,
-      }}
-    >
-      {children}
+    <CourseContext.Provider value={value}>
+      <LessonDurationsProvider
+        lessonDurations={lessonDurations}
+        setLessonDuration={setLessonDuration}
+      >
+        {children}
+      </LessonDurationsProvider>
     </CourseContext.Provider>
   );
 }

@@ -1,4 +1,4 @@
-import { CourseProgress, LessonProgress } from '@/app/types';
+import { Course, CourseProgress, LessonProgress } from '@/app/types';
 
 const STORAGE_KEY_PREFIX = 'foleyo_progress_';
 
@@ -54,7 +54,9 @@ export function getLessonProgress(
 }
 
 /**
- * Update progress for a specific lesson.
+ * Update progress for a specific lesson. Pure — persistence is owned by the
+ * course provider's single save funnel, so this is safe inside setState
+ * updaters (which React may invoke twice in StrictMode).
  */
 export function updateLessonProgress(
   progress: CourseProgress,
@@ -62,7 +64,7 @@ export function updateLessonProgress(
   update: Partial<LessonProgress>
 ): CourseProgress {
   const current = getLessonProgress(progress, lessonId);
-  const updated: CourseProgress = {
+  return {
     ...progress,
     lessons: {
       ...progress.lessons,
@@ -75,9 +77,6 @@ export function updateLessonProgress(
     lastLessonId: lessonId,
     lastOpened: Date.now(),
   };
-
-  saveProgress(updated);
-  return updated;
 }
 
 /**
@@ -118,4 +117,54 @@ export function getCompletionStats(
   const total = lessonIds.length;
   const percentage = total > 0 ? Math.round((completed / total) * 100) : 0;
   return { completed, total, percentage };
+}
+
+export interface WatchTimeStats {
+  totalSeconds: number;
+  watchedSeconds: number;
+  remainingSeconds: number;
+  watchedPercentage: number;
+}
+
+const EMPTY_WATCH_TIME: WatchTimeStats = {
+  totalSeconds: 0,
+  watchedSeconds: 0,
+  remainingSeconds: 0,
+  watchedPercentage: 0,
+};
+
+/**
+ * Watch-time stats across all lessons with a known duration. Completed
+ * lessons count as fully watched; partial lessons count up to their last
+ * position.
+ */
+export function computeWatchTimeStats(
+  course: Course | null,
+  progress: CourseProgress,
+  lessonDurations: Record<string, number>
+): WatchTimeStats {
+  if (!course) return EMPTY_WATCH_TIME;
+
+  const allLessons = course.modules.flatMap((m) => m.lessons);
+  let totalSeconds = 0;
+  let watchedSeconds = 0;
+
+  for (const lesson of allLessons) {
+    const dur = lessonDurations[lesson.id];
+    if (dur && dur > 0) {
+      totalSeconds += dur;
+      const lessonProg = progress.lessons[lesson.id];
+      if (lessonProg?.completed) {
+        watchedSeconds += dur;
+      } else if (lessonProg?.lastPosition > 0) {
+        watchedSeconds += Math.min(lessonProg.lastPosition, dur);
+      }
+    }
+  }
+
+  const remainingSeconds = Math.max(0, totalSeconds - watchedSeconds);
+  const watchedPercentage =
+    totalSeconds > 0 ? Math.round((watchedSeconds / totalSeconds) * 100) : 0;
+
+  return { totalSeconds, watchedSeconds, remainingSeconds, watchedPercentage };
 }

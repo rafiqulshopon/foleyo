@@ -9,6 +9,7 @@ import {
 import '@vidstack/react/player/styles/default/theme.css';
 import '@vidstack/react/player/styles/default/layouts/video.css';
 import { useCourse } from '@/app/context/course-context';
+import { useLessonDurations } from '@/app/context/lesson-durations-context';
 import { getLessonProgress } from '@/app/lib/progress-store';
 import { useNotes, useCourseNotes } from '@/app/lib/use-notes';
 import { FOCUS_RING } from '@/app/components/focus-ring';
@@ -27,8 +28,8 @@ export function VideoPlayer() {
     subtitleTracks,
     requiresPermission,
     grantPermission,
-    setLessonDuration,
   } = useCourse();
+  const { setLessonDuration } = useLessonDurations();
 
   const playerRef = useRef<MediaPlayerInstance>(null);
   const playerContainerRef = useRef<HTMLDivElement>(null);
