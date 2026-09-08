@@ -5,11 +5,23 @@ import { useCourse } from '@/app/context/course-context';
 import { getCompletionStats, getLessonProgress } from '@/app/lib/progress-store';
 import { useCourseNotes } from '@/app/lib/use-notes';
 import { FOCUS_RING } from '@/app/components/focus-ring';
-import type { Module } from '@/app/types';
+import type { Lesson, Module } from '@/app/types';
 
-function ModuleItem({ module, notes }: { module: Module; notes: Record<string, string> }) {
+function ModuleItem({
+  module,
+  lessons,
+  forceExpanded = false,
+  notes,
+}: {
+  module: Module;
+  /** Lessons to render — a filtered subset while searching. */
+  lessons: Lesson[];
+  forceExpanded?: boolean;
+  notes: Record<string, string>;
+}) {
   const { currentLesson, selectLesson, progress, markComplete } = useCourse();
   const [expanded, setExpanded] = useState(true);
+  const effectiveExpanded = forceExpanded || expanded;
   const stats = getCompletionStats(progress, module.lessons.map((l) => l.id));
   const isActive = module.lessons.some((l) => l.id === currentLesson?.id);
   const listRef = useRef<HTMLDivElement>(null);
@@ -42,7 +54,7 @@ function ModuleItem({ module, notes }: { module: Module; notes: Record<string, s
       {/* Module header */}
       <button
         onClick={() => setExpanded(!expanded)}
-        aria-expanded={expanded}
+        aria-expanded={effectiveExpanded}
         aria-controls={lessonsId}
         className={`w-full flex items-center gap-2 px-3 py-2.5 rounded-lg text-left transition-all group ${FOCUS_RING} ${
           isActive
@@ -61,7 +73,7 @@ function ModuleItem({ module, notes }: { module: Module; notes: Record<string, s
           strokeLinecap="round"
           strokeLinejoin="round"
           className={`shrink-0 transition-transform duration-200 ${
-            expanded ? 'rotate-90' : ''
+            effectiveExpanded ? 'rotate-90' : ''
           }`}
         >
           <polyline points="9 18 15 12 9 6" />
@@ -97,12 +109,14 @@ function ModuleItem({ module, notes }: { module: Module; notes: Record<string, s
         ref={listRef}
         className="overflow-hidden transition-all duration-200 ease-out"
         style={{
-          maxHeight: expanded ? `${(module.lessons.length + 1) * 48}px` : '0px',
-          opacity: expanded ? 1 : 0,
+          maxHeight: effectiveExpanded
+            ? `${(lessons.length + 1) * 48}px`
+            : '0px',
+          opacity: effectiveExpanded ? 1 : 0,
         }}
       >
         <div className="ml-3 pl-3 border-l border-border-subtle">
-          {module.lessons.map((lesson) => {
+          {lessons.map((lesson) => {
             const isCurrentLesson = currentLesson?.id === lesson.id;
             const lessonProgress = getLessonProgress(progress, lesson.id);
             const isUnsupported = lesson.fileName.toLowerCase().endsWith('.mkv') || lesson.fileName.toLowerCase().endsWith('.ts');
@@ -234,8 +248,25 @@ function ModuleItem({ module, notes }: { module: Module; notes: Record<string, s
 export function Sidebar() {
   const { course, sidebarOpen, toggleSidebar, refreshCourse, isLoading } = useCourse();
   const notes = useCourseNotes(course?.name);
+  const [query, setQuery] = useState('');
 
   if (!course) return null;
+
+  // Filter: a module matches if its title matches (show all its lessons) or
+  // if any lesson title matches (show only those lessons).
+  const q = query.trim().toLowerCase();
+  const filtering = q !== '';
+  const entries = filtering
+    ? course.modules
+        .map((module) => {
+          const titleMatches = module.title.toLowerCase().includes(q);
+          const matchedLessons = titleMatches
+            ? module.lessons
+            : module.lessons.filter((l) => l.title.toLowerCase().includes(q));
+          return { module, lessons: matchedLessons };
+        })
+        .filter((e) => e.lessons.length > 0)
+    : course.modules.map((module) => ({ module, lessons: module.lessons }));
 
   return (
     <div className="relative flex shrink-0">
@@ -293,14 +324,44 @@ export function Sidebar() {
               </button>
             </div>
           </div>
+
+          {/* Lesson filter — always visible above the scroll area */}
+          <div className="px-3 pb-2">
+            <input
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') {
+                  if (query) setQuery('');
+                  e.currentTarget.blur();
+                }
+              }}
+              placeholder="Filter lessons…"
+              aria-label="Filter lessons"
+              className="w-full rounded-lg border border-border-subtle bg-surface-hover/40 px-2.5 py-1.5 text-xs text-foreground placeholder:text-foreground-subtle transition-colors focus:border-accent/50 focus:outline-none focus:ring-2 focus:ring-accent/25"
+            />
+          </div>
         </div>
 
         {/* Scrollable module list */}
         <div className="flex-1 overflow-y-auto p-3 min-w-[288px]">
           <nav>
-            {course.modules.map((module) => (
-              <ModuleItem key={module.id} module={module} notes={notes} />
-            ))}
+            {entries.length === 0 ? (
+              <p className="px-2 py-6 text-center font-mono text-[11px] text-foreground-subtle">
+                No lessons match
+              </p>
+            ) : (
+              entries.map(({ module, lessons }) => (
+                <ModuleItem
+                  key={module.id}
+                  module={module}
+                  lessons={lessons}
+                  forceExpanded={filtering}
+                  notes={notes}
+                />
+              ))
+            )}
           </nav>
         </div>
       </aside>

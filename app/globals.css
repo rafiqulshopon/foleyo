@@ -188,6 +188,16 @@ body {
 html[data-theme="dark"] .theme-icon-moon { display: none; }
 html[data-theme="light"] .theme-icon-sun { display: none; }
 
+/* Auto-advance countdown — duration is set inline to match AUTO_ADVANCE_DELAY_MS */
+@keyframes autoAdvanceShrink {
+  from { transform: scaleX(1); }
+  to { transform: scaleX(0); }
+}
+
+.auto-advance-bar {
+  animation: autoAdvanceShrink 5s linear forwards;
+}
+
 /* ──────────────────────────────────────────────
    Reduced motion — disable animation app-wide
    ────────────────────────────────────────────── */

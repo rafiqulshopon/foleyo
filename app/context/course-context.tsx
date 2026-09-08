@@ -36,6 +36,15 @@ import { LessonDurationsProvider } from './lesson-durations-context';
 
 export type { SubtitleTrack };
 
+/** Delay before autoplay advances to the next lesson after a video ends. */
+export const AUTO_ADVANCE_DELAY_MS = 5000;
+
+/** A pending auto-advance: which lesson is next and when the countdown ends. */
+export interface AutoAdvance {
+  lessonId: string;
+  endsAt: number;
+}
+
 interface CourseContextType {
   // State
   course: Course | null;
@@ -44,6 +53,7 @@ interface CourseContextType {
   subtitleTracks: SubtitleTrack[];
   progress: CourseProgress;
   autoplay: boolean;
+  autoAdvance: AutoAdvance | null;
   sidebarOpen: boolean;
   isLoading: boolean;
   error: string | null;
@@ -62,6 +72,7 @@ interface CourseContextType {
   markComplete: (lessonId: string) => void;
   updatePosition: (position: number) => void;
   onVideoEnded: () => void;
+  cancelAutoAdvance: () => void;
   closeCourse: () => void;
   refreshCourse: () => Promise<void>;
   grantPermission: () => Promise<void>;
@@ -82,6 +93,7 @@ export function CourseProvider({ children }: { children: ReactNode }) {
     createEmptyProgress('')
   );
   const [autoplay, setAutoplay] = useState(true);
+  const [autoAdvance, setAutoAdvance] = useState<AutoAdvance | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -97,9 +109,23 @@ export function CourseProvider({ children }: { children: ReactNode }) {
   // Track current directory handle for saving to recent courses
   const dirHandleRef = useRef<FileSystemDirectoryHandle | null>(null);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const autoAdvanceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Guards the completed-count → recent-course metadata sync so position
   // ticks (which also change `progress`) don't trigger IndexedDB writes.
   const lastSyncedCompletedRef = useRef<{ courseName: string; completed: number } | null>(null);
+
+  const clearAutoAdvanceTimer = useCallback(() => {
+    if (autoAdvanceTimerRef.current) {
+      clearTimeout(autoAdvanceTimerRef.current);
+      autoAdvanceTimerRef.current = null;
+    }
+  }, []);
+
+  /** Dismiss a pending auto-advance countdown without advancing. */
+  const cancelAutoAdvance = useCallback(() => {
+    clearAutoAdvanceTimer();
+    setAutoAdvance(null);
+  }, [clearAutoAdvanceTimer]);
 
   // Single persistence funnel: every progress change is written once here.
   // (Updaters themselves are pure — StrictMode may invoke them twice.)
@@ -135,6 +161,7 @@ export function CourseProvider({ children }: { children: ReactNode }) {
         saveTimeoutRef.current = null;
       }
 
+      cancelAutoAdvance();
       resetVideo();
       setCourse(null);
       setCurrentLesson(null);
@@ -150,17 +177,23 @@ export function CourseProvider({ children }: { children: ReactNode }) {
         }
       }
     },
-    [course, progress, resetVideo]
+    [course, progress, resetVideo, cancelAutoAdvance]
   );
 
-  useCourseHistory(course, closeCourse);
+  useCourseHistory({
+    course,
+    closeCourse,
+    autoAdvanceActive: autoAdvance !== null,
+    cancelAutoAdvance,
+  });
 
-  // Clear a pending debounced position save on unmount
+  // Clear pending timers on unmount
   useEffect(() => {
     return () => {
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+      clearAutoAdvanceTimer();
     };
-  }, []);
+  }, [clearAutoAdvanceTimer]);
 
   // Get all lessons flat
   const getAllLessons = useCallback((): Lesson[] => {
@@ -354,6 +387,7 @@ export function CourseProvider({ children }: { children: ReactNode }) {
   // Select a specific lesson
   const selectLesson = useCallback(
     async (lesson: Lesson) => {
+      cancelAutoAdvance(); // manual navigation cancels any pending countdown
       setError(null);
       try {
         const url = await loadVideo(lesson);
@@ -365,7 +399,7 @@ export function CourseProvider({ children }: { children: ReactNode }) {
         setError(`Failed to load video: ${e instanceof Error ? e.message : 'Unknown error'}`);
       }
     },
-    [loadVideo, showVideo]
+    [loadVideo, showVideo, cancelAutoAdvance]
   );
 
   // Refresh course to detect new files
@@ -427,22 +461,35 @@ export function CourseProvider({ children }: { children: ReactNode }) {
       })
     );
 
-    // Auto-play next if enabled
+    // Auto-play next if enabled — after a cancelable countdown
     if (autoplay) {
       const allLessons = getAllLessons();
       const currentIdx = allLessons.findIndex(
         (l) => l.id === currentLesson.id
       );
-      if (currentIdx < allLessons.length - 1) {
-        selectLesson(allLessons[currentIdx + 1]);
+      const next =
+        currentIdx < allLessons.length - 1 ? allLessons[currentIdx + 1] : null;
+      if (next) {
+        clearAutoAdvanceTimer();
+        setAutoAdvance({
+          lessonId: next.id,
+          endsAt: Date.now() + AUTO_ADVANCE_DELAY_MS,
+        });
+        autoAdvanceTimerRef.current = setTimeout(() => {
+          autoAdvanceTimerRef.current = null;
+          setAutoAdvance(null);
+          selectLesson(next);
+        }, AUTO_ADVANCE_DELAY_MS);
       }
     }
-  }, [currentLesson, autoplay, getAllLessons, selectLesson]);
+  }, [currentLesson, autoplay, getAllLessons, selectLesson, clearAutoAdvanceTimer]);
 
   // Toggle autoplay
   const toggleAutoplay = useCallback(() => {
     setAutoplay((prev) => !prev);
-  }, []);
+    // Turning autoplay off also dismisses a pending countdown
+    if (autoplay) cancelAutoAdvance();
+  }, [autoplay, cancelAutoAdvance]);
 
   // Toggle sidebar
   const toggleSidebar = useCallback(() => {
@@ -584,6 +631,7 @@ export function CourseProvider({ children }: { children: ReactNode }) {
       subtitleTracks,
       progress,
       autoplay,
+      autoAdvance,
       sidebarOpen,
       isLoading,
       error,
@@ -600,6 +648,7 @@ export function CourseProvider({ children }: { children: ReactNode }) {
       markComplete,
       updatePosition,
       onVideoEnded,
+      cancelAutoAdvance,
       closeCourse,
       refreshCourse,
       grantPermission,
@@ -611,6 +660,7 @@ export function CourseProvider({ children }: { children: ReactNode }) {
       subtitleTracks,
       progress,
       autoplay,
+      autoAdvance,
       sidebarOpen,
       isLoading,
       error,
@@ -627,6 +677,7 @@ export function CourseProvider({ children }: { children: ReactNode }) {
       markComplete,
       updatePosition,
       onVideoEnded,
+      cancelAutoAdvance,
       closeCourse,
       refreshCourse,
       grantPermission,
