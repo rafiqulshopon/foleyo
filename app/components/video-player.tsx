@@ -2,6 +2,7 @@
 
 import {
   useEffect,
+  useMemo,
   useRef,
   useCallback,
   useState,
@@ -10,8 +11,10 @@ import {
 import {
   MediaPlayer,
   MediaProvider,
+  Tooltip,
   Track,
   useMediaRemote,
+  type MediaKeyShortcuts,
   type MediaPlayerInstance,
 } from "@vidstack/react";
 import {
@@ -47,6 +50,9 @@ export function VideoPlayer() {
     grantPermission,
     autoAdvance,
     cancelAutoAdvance,
+    windowFullscreen,
+    toggleWindowFullscreen,
+    exitWindowFullscreen,
   } = useCourse();
   const { setLessonDuration } = useLessonDurations();
 
@@ -54,6 +60,7 @@ export function VideoPlayer() {
   const playerContainerRef = useRef<HTMLDivElement>(null);
   const hasRestoredRef = useRef<string | null>(null);
   const wasFullscreenRef = useRef(false);
+  const [isNativeFullscreen, setIsNativeFullscreen] = useState(false);
   // The URL that last reported canplay. Comparing it to the current videoUrl
   // derives readiness without a setState-in-effect reset when lessons change.
   const [readyUrl, setReadyUrl] = useState<string | null>(null);
@@ -148,17 +155,87 @@ export function VideoPlayer() {
   // Track fullscreen state changes from the browser
   useEffect(() => {
     const handleFullscreenChange = () => {
-      // If user manually exited fullscreen (e.g. pressed Esc), clear the flag
-      if (!document.fullscreenElement) {
+      const nativeActive = Boolean(document.fullscreenElement);
+      setIsNativeFullscreen(nativeActive);
+      if (nativeActive) {
+        // Keep window fullscreen and native fullscreen mutually exclusive
+        exitWindowFullscreen();
+      } else {
+        // If user manually exited fullscreen (e.g. pressed Esc), clear the flag
         wasFullscreenRef.current = false;
       }
     };
     document.addEventListener("fullscreenchange", handleFullscreenChange);
     return () =>
       document.removeEventListener("fullscreenchange", handleFullscreenChange);
-  }, []);
+  }, [exitWindowFullscreen]);
+
+  // Keep keyboard focus on the player when entering window fullscreen so
+  // Space / arrows / f / Escape work immediately.
+  useEffect(() => {
+    if (windowFullscreen) {
+      playerContainerRef.current?.focus();
+    }
+  }, [windowFullscreen]);
 
   const remote = useMediaRemote(playerRef);
+
+  const handleToggleWindowFullscreen = useCallback(() => {
+    if (document.fullscreenElement) {
+      document.exitFullscreen?.().catch(() => {});
+    }
+    toggleWindowFullscreen();
+  }, [toggleWindowFullscreen]);
+
+  const handleToggleNativeFullscreen = useCallback(() => {
+    if (windowFullscreen) {
+      exitWindowFullscreen();
+    }
+    remote.toggleFullscreen();
+  }, [windowFullscreen, exitWindowFullscreen, remote]);
+
+  const keyShortcuts = useMemo<MediaKeyShortcuts>(
+    () => ({
+      toggleFullscreen: {
+        keys: "f",
+        onKeyDown: ({ event }) => {
+          event.preventDefault();
+          handleToggleWindowFullscreen();
+        },
+      },
+      toggleNativeFullscreen: {
+        keys: "Shift+f",
+        onKeyDown: ({ event }) => {
+          event.preventDefault();
+          handleToggleNativeFullscreen();
+        },
+      },
+    }),
+    [handleToggleWindowFullscreen, handleToggleNativeFullscreen],
+  );
+
+  const layoutSlots = useMemo(
+    () => ({
+      beforeFullscreenButton: (
+        <MonitorFullscreenButton
+          active={isNativeFullscreen}
+          onToggle={handleToggleNativeFullscreen}
+        />
+      ),
+      fullscreenButton: (
+        <WindowFullscreenButton
+          active={windowFullscreen}
+          onToggle={handleToggleWindowFullscreen}
+        />
+      ),
+    }),
+    [
+      isNativeFullscreen,
+      handleToggleNativeFullscreen,
+      windowFullscreen,
+      handleToggleWindowFullscreen,
+    ],
+  );
 
   const handleTimeUpdate = useCallback(
     (detail: { currentTime: number }) => {
@@ -228,8 +305,16 @@ export function VideoPlayer() {
   const videoMimeType = getVideoMimeType(currentLesson.fileName);
 
   return (
-    <div className="flex-1 flex flex-col items-center overflow-y-auto">
-      <div className="w-full max-w-240 px-4 py-6 animate-fade-in">
+    <div
+      className={`flex-1 flex flex-col items-center ${
+        windowFullscreen ? "overflow-hidden" : "overflow-y-auto"
+      }`}
+    >
+      <div
+        className={`w-full max-w-240 px-4 py-6 ${
+          windowFullscreen ? "" : "animate-fade-in"
+        }`}
+      >
         {/* Lesson title */}
         <div className="mb-4">
           <p className="text-xs text-foreground-subtle mb-1 font-medium uppercase tracking-wider">
@@ -247,7 +332,12 @@ export function VideoPlayer() {
         <div
           ref={playerContainerRef}
           tabIndex={-1}
-          className="rounded-xl overflow-hidden bg-black shadow-2xl shadow-black/50 ring-1 ring-white/5 relative aspect-video focus:outline-none"
+          data-window-fullscreen={windowFullscreen ? "true" : undefined}
+          className={
+            windowFullscreen
+              ? "fixed inset-0 z-40 w-screen h-screen bg-black focus:outline-none"
+              : "rounded-xl overflow-hidden bg-black shadow-2xl shadow-black/50 ring-1 ring-white/5 relative aspect-video focus:outline-none"
+          }
         >
           {requiresPermission ? (
             <div
@@ -310,6 +400,7 @@ export function VideoPlayer() {
               autoPlay
               className="w-full h-full"
               keyTarget="player"
+              keyShortcuts={keyShortcuts}
               load="eager"
             >
               <MediaProvider>
@@ -327,7 +418,10 @@ export function VideoPlayer() {
                   />
                 ))}
               </MediaProvider>
-              <DefaultVideoLayout icons={defaultLayoutIcons} />
+              <DefaultVideoLayout
+                icons={defaultLayoutIcons}
+                slots={layoutSlots}
+              />
             </MediaPlayer>
           )}
 
@@ -584,5 +678,108 @@ function AutoAdvanceOverlay({
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * Primary fullscreen control: expands the player to fill only the current
+ * browser viewport (so split-screen windows stay contained on their half of
+ * the monitor).
+ */
+function WindowFullscreenButton({
+  active,
+  onToggle,
+}: {
+  active: boolean;
+  onToggle: () => void;
+}) {
+  const label = active ? "Exit fill window" : "Fill window";
+  return (
+    <Tooltip.Root>
+      <Tooltip.Trigger asChild>
+        <button
+          type="button"
+          className="vds-button"
+          aria-label={label}
+          aria-pressed={active}
+          onClick={onToggle}
+        >
+          <svg
+            className="vds-icon"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            {active ? (
+              <>
+                <polyline points="4 14 10 14 10 20" />
+                <polyline points="20 10 14 10 14 4" />
+                <line x1="14" y1="10" x2="21" y2="3" />
+                <line x1="3" y1="21" x2="10" y2="14" />
+              </>
+            ) : (
+              <>
+                <polyline points="15 3 21 3 21 9" />
+                <polyline points="9 21 3 21 3 15" />
+                <line x1="21" y1="3" x2="14" y2="10" />
+                <line x1="3" y1="21" x2="10" y2="14" />
+              </>
+            )}
+          </svg>
+        </button>
+      </Tooltip.Trigger>
+      <Tooltip.Content className="vds-tooltip-content" placement="top end">
+        {label} (f)
+      </Tooltip.Content>
+    </Tooltip.Root>
+  );
+}
+
+/**
+ * Secondary fullscreen control: triggers native OS/monitor fullscreen when the
+ * user explicitly wants the entire display.
+ */
+function MonitorFullscreenButton({
+  active,
+  onToggle,
+}: {
+  active: boolean;
+  onToggle: () => void;
+}) {
+  const label = active ? "Exit monitor fullscreen" : "Monitor fullscreen";
+  return (
+    <Tooltip.Root>
+      <Tooltip.Trigger asChild>
+        <button
+          type="button"
+          className="vds-button"
+          aria-label={label}
+          aria-pressed={active}
+          onClick={onToggle}
+        >
+          <svg
+            className="vds-icon"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <rect x="2" y="3" width="20" height="14" rx="2" />
+            <line x1="8" y1="21" x2="16" y2="21" />
+            <line x1="12" y1="17" x2="12" y2="21" />
+          </svg>
+        </button>
+      </Tooltip.Trigger>
+      <Tooltip.Content className="vds-tooltip-content" placement="top">
+        {label} (Shift+F)
+      </Tooltip.Content>
+    </Tooltip.Root>
   );
 }

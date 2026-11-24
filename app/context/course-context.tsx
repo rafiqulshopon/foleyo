@@ -55,6 +55,7 @@ interface CourseContextType {
   autoplay: boolean;
   autoAdvance: AutoAdvance | null;
   sidebarOpen: boolean;
+  windowFullscreen: boolean;
   isLoading: boolean;
   error: string | null;
   hasUnsupportedFormat: boolean;
@@ -69,6 +70,8 @@ interface CourseContextType {
   prevLesson: () => void;
   toggleAutoplay: () => void;
   toggleSidebar: () => void;
+  toggleWindowFullscreen: () => void;
+  exitWindowFullscreen: () => void;
   markComplete: (lessonId: string) => void;
   updatePosition: (position: number) => void;
   onVideoEnded: () => void;
@@ -95,6 +98,7 @@ export function CourseProvider({ children }: { children: ReactNode }) {
   const [autoplay, setAutoplay] = useState(true);
   const [autoAdvance, setAutoAdvance] = useState<AutoAdvance | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [windowFullscreen, setWindowFullscreen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hasUnsupportedFormat, setHasUnsupportedFormat] = useState(false);
@@ -162,6 +166,7 @@ export function CourseProvider({ children }: { children: ReactNode }) {
       }
 
       cancelAutoAdvance();
+      setWindowFullscreen(false);
       resetVideo();
       setCourse(null);
       setCurrentLesson(null);
@@ -180,11 +185,21 @@ export function CourseProvider({ children }: { children: ReactNode }) {
     [course, progress, resetVideo, cancelAutoAdvance]
   );
 
+  const toggleWindowFullscreen = useCallback(() => {
+    setWindowFullscreen((prev) => !prev);
+  }, []);
+
+  const exitWindowFullscreen = useCallback(() => {
+    setWindowFullscreen(false);
+  }, []);
+
   useCourseHistory({
     course,
     closeCourse,
     autoAdvanceActive: autoAdvance !== null,
     cancelAutoAdvance,
+    windowFullscreen,
+    exitWindowFullscreen,
   });
 
   // Clear pending timers on unmount
@@ -627,6 +642,7 @@ export function CourseProvider({ children }: { children: ReactNode }) {
       autoplay,
       autoAdvance,
       sidebarOpen,
+      windowFullscreen,
       isLoading,
       error,
       hasUnsupportedFormat,
@@ -639,6 +655,8 @@ export function CourseProvider({ children }: { children: ReactNode }) {
       prevLesson,
       toggleAutoplay,
       toggleSidebar,
+      toggleWindowFullscreen,
+      exitWindowFullscreen,
       markComplete,
       updatePosition,
       onVideoEnded,
@@ -656,6 +674,7 @@ export function CourseProvider({ children }: { children: ReactNode }) {
       autoplay,
       autoAdvance,
       sidebarOpen,
+      windowFullscreen,
       isLoading,
       error,
       hasUnsupportedFormat,
@@ -668,6 +687,8 @@ export function CourseProvider({ children }: { children: ReactNode }) {
       prevLesson,
       toggleAutoplay,
       toggleSidebar,
+      toggleWindowFullscreen,
+      exitWindowFullscreen,
       markComplete,
       updatePosition,
       onVideoEnded,
