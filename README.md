@@ -4,12 +4,13 @@
 
 # Foleyo
 
-**Your offline course player — beautiful, private, distraction-free.**
+**Turn any folder of downloaded videos into a clean, local course player.**
 
-Watch downloaded video courses in your browser with a real course-platform experience.  
-No uploads. No backend. No internet required.
+No uploads. No account. No backend.  
+Your videos stream straight from your disk in your browser.
 
 [![Next.js](https://img.shields.io/badge/Next.js-16-black?logo=next.js)](https://nextjs.org)
+[![React](https://img.shields.io/badge/React-19-149eca?logo=react&logoColor=white)](https://react.dev)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-3178c6?logo=typescript&logoColor=white)](https://typescriptlang.org)
 [![Tailwind CSS](https://img.shields.io/badge/Tailwind-4-38bdf8?logo=tailwindcss&logoColor=white)](https://tailwindcss.com)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -20,71 +21,109 @@ No uploads. No backend. No internet required.
 
 ## ✨ What is Foleyo?
 
-Foleyo turns any folder of downloaded course videos into a structured learning experience — just like Udemy or Coursera, but running **100% locally** in your browser.
+Foleyo is a local-first web app that turns a folder of downloaded course videos on your computer into a structured learning interface — modules, lessons, subtitles, notes, and progress tracking — without uploading a single file anywhere.
 
-Point it at a folder on your Mac, and it instantly creates a course interface with modules, lessons, progress tracking, and a gorgeous video player.
+Point it at a folder on macOS, Windows, or Linux, and Foleyo reads the folder directly using the browser's File System Access API.
 
-### Why?
+### Why I built it
 
-- 📂 You downloaded a course but hate scrubbing through folders in Finder
-- 🎓 You want a **real course UI** — sidebar, progress bars, autoplay
-- 🔒 You care about **privacy** — nothing leaves your machine
-- 🌐 You want to learn **offline**, on a plane, in a cabin, anywhere
+- **No more clicking through folders** in Finder or Explorer trying to remember which video you watched last
+- **Split-screen friendly** — press `F` to fill just your browser window (so you can keep your code editor or notes open on the other half of your screen)
+- **Private by design** — videos, notes, and progress stay on your machine
+- **Works offline** — play local files without internet once the app is open (or self-host it locally with `npm run dev`)
 
 ---
 
 ## 🎯 Features
 
-| Feature | Description |
+| Feature | What it actually does |
 |---|---|
-| 📁 **Folder Picker** | Select your course folder via the native file picker — no uploads |
-| 🗂️ **Smart Parsing** | Subfolders → modules, video files → lessons, sorted by numeric prefix |
-| 🎬 **Video Player** | Built on [vidstack](https://vidstack.io) — keyboard shortcuts, speed control, fullscreen |
-| 📊 **Progress Tracking** | Auto-saves position, marks lessons complete, remembers where you left off |
-| ▶️ **Autoplay** | Auto-advance through lessons with a cancelable countdown |
-| 💬 **Subtitles** | `.srt` / `.vtt` files next to a video are auto-detached and attached — SRT converted on the fly |
-| 📝 **Lesson Notes** | Per-lesson notes, auto-saved, exported as Markdown |
-| 🔍 **Lesson Search** | Filter lessons by title straight from the sidebar |
-| 🕐 **Watch Time Stats** | Time watched across the course, completed vs. in-progress |
-| 🖼️ **Thumbnails** | Recent-course cards get a generated thumbnail of the last watched lesson |
-| 🕐 **Recently Played** | Resume any previously opened course in one click |
-| 🌙 **Dark & Light Mode** | Toggle between themes — preference saved automatically |
-| 📱 **Responsive** | Collapsible sidebar, works on smaller screens |
-| 💾 **Persistent** | Course handles saved in IndexedDB, progress in localStorage |
-| 🔐 **Permission Recovery** | Gracefully re-requests file access on revisit |
-| 📲 **Installable** | PWA manifest — install it like a native app (Chromium) |
+| 📁 **Direct Folder Access** | Pick any local course folder via the browser's native picker — nothing is copied or uploaded |
+| 🗂️ **Smart Folder Parsing** | Recursively maps subfolders to modules and video files to lessons, sorted naturally by numeric prefix (`01_`, `2_`, `10_`) |
+| 🎬 **Split-Screen Ready Player** | Built on [Vidstack](https://vidstack.io) with speed persistence, Picture-in-Picture, **Fill Window** fullscreen (`F`) for split-screen study, and **Monitor Fullscreen** (`Shift+F`) |
+| 📊 **Progress & Resume** | Saves playback position as you watch, marks finished lessons complete, and resumes where you left off |
+| ▶️ **Autoplay with Countdown** | Automatically advances to the next lesson after a 5-second cancelable countdown (`Esc` or Cancel) |
+| 💬 **Automatic Subtitles** | Auto-detects matching `.srt` and `.vtt` files next to each video (including language codes like `01_Intro.en.srt`), converting `.srt` to WebVTT on the fly |
+| 📝 **Per-Lesson Notes & Export** | Auto-saving notes under each video, with one-click export of all course notes to a single `.md` file |
+| 🔍 **Sidebar Search & Refresh** | Filter modules/lessons by title, and refresh a course folder in place if you download new lessons later |
+| ⏱️ **Watch Time & Completion Stats** | Shows completed lessons, percentage, watched duration, and remaining time in the header |
+| 📚 **Recent Courses Library** | Remembers previously opened courses (with a thumbnail from the first lesson) so you can resume in one click |
+| 🌙 **Dark & Light Mode** | Respects your system preference by default and remembers your toggle |
+| 📲 **Installable (PWA Manifest)** | Can be installed as a standalone desktop window in Chromium browsers |
 
 ---
 
-## 📂 Expected Folder Structure
+## 📂 How Folders Are Parsed
 
-```
-MyCourse/
-├── 01_Introduction/
-│   ├── 01_Welcome.mp4
-│   └── 02_Setup.mp4
-├── 02_Core_Concepts/
-│   ├── 01_Basics.mp4
-│   └── 02_Advanced.mp4
-└── 03_Advanced_Topics/
-    ├── 01_Patterns.mp4
-    └── 02_Best_Practices.webm
+```text
+Complete_Web_Dev/
+├── 01_HTML_Basics/
+│   ├── 01_Intro.mp4
+│   ├── 01_Intro.en.srt       # Auto-loaded as English subtitles
+│   └── notes.pdf             # Ignored (non-video / non-subtitle)
+├── 02_CSS_Styling/
+│   ├── 01_Flexbox.mp4
+│   └── 02_Grid.webm
+└── 03_Bonus/
+    └── 01_Tips/
+        └── 01_Shortcuts.mp4  # Nested subfolders become "Bonus - Tips"
 ```
 
-- **Top-level subfolders** = Modules
-- **Video files inside** = Lessons
-- Numeric prefixes (`01_`, `02_`) define sort order — they're stripped from display names
-- Supports `.mp4`, `.m4v`, `.webm`, `.ogv`, `.mkv`, `.mov` — everything Chromium's video element can demux
-- Videos directly in root folder work too (treated as a single "Lessons" module)
+- **Subfolders** become modules (nested folders are joined like `Parent - Child`; hidden folders starting with `.` are skipped)
+- **Videos directly in the root folder** are grouped under a `"Course Content"` module
+- **Leading numbers** (`01_`, `02-`, `10. `) control sort order and are stripped from display titles
 
 ---
 
-## 🚀 Getting Started
+## 🎞️ Supported & Unsupported Formats
+
+Because Foleyo plays files directly in your browser's `<video>` element (with no server-side transcoding), format support is determined by what Chromium can natively demux and decode:
+
+| Format | Status | Notes |
+|---|---|---|
+| `.mp4`, `.m4v` (H.264 / AAC) | ✅ **Best support** | Plays reliably everywhere |
+| `.webm` (VP8 / VP9 / AV1) | ✅ **Supported** | Plays natively in Chromium |
+| `.ogv` | ✅ **Supported** | Plays natively in Chromium |
+| `.mkv`, `.mov` | ⚠️ **Depends on codec** | Plays if encoded with H.264/AAC (or VP9/Opus). May fail or play without audio if it uses **H.265/HEVC** (hardware-dependent), **Dolby Digital (AC-3 / EAC-3)**, **DTS**, or **Apple ProRes** |
+| `.ts` (MPEG-TS), `.avi`, `.wmv`, `.flv`, `.mpg`, `.mpeg`, `.vob`, `.3gp` | ❌ **Not supported** | Chromium's `<video>` element cannot play these containers natively; they are skipped when scanning |
+| `.srt`, `.vtt` (Subtitles) | ✅ **Supported** | `.srt` is converted to WebVTT on the fly; if both exist for the same language, `.vtt` is preferred |
+
+> **Tip:** If you have `.ts` files with H.264/AAC, you can remux them to `.mp4` instantly without re-encoding:
+> ```bash
+> ffmpeg -i input.ts -c copy output.mp4
+> ```
+> For `.avi`, `.wmv`, `.flv`, or unsupported codecs inside `.mkv`/`.mov`, re-encode to H.264/AAC MP4:
+> ```bash
+> ffmpeg -i input.mkv -c:v libx264 -c:a aac output.mp4
+> ```
+
+---
+
+## ⌨️ Keyboard Shortcuts
+
+When the video player has focus:
+
+| Key | Action |
+|---|---|
+| `Space` / `K` | Play / Pause |
+| `←` / `→` or `J` / `L` | Seek backward / forward |
+| `↑` / `↓` | Volume up / down |
+| `F` | Toggle **Fill Window** (fills only the browser viewport — great for split-screen) |
+| `Shift + F` | Toggle **Monitor Fullscreen** (native full display) |
+| `M` | Mute / unmute |
+| `C` | Toggle captions |
+| `I` | Toggle Picture-in-Picture |
+| `<` / `>` | Playback speed down / up |
+| `Esc` | Unwinds layers: cancel auto-advance → exit fill window → back to library |
+
+---
+
+## 🚀 Getting Started (Run Locally)
 
 ### Prerequisites
 
-- **Node.js** 18+
-- **Chrome** or **Edge** (requires [File System Access API](https://developer.mozilla.org/en-US/docs/Web/API/File_System_Access_API))
+- **Node.js** `20.9+`
+- A desktop **Chromium browser** — Chrome, Edge, Brave, or Arc (required for the [File System Access API](https://developer.mozilla.org/en-US/docs/Web/API/File_System_Access_API))
 
 ### Install & Run
 
@@ -109,143 +148,130 @@ npm run build
 npm start
 ```
 
+### Checks & Tests
+
+```bash
+npm run typecheck   # TypeScript check (tsc --noEmit)
+npm run lint        # ESLint
+npm test            # Vitest unit tests
+```
+
+---
+
+## 🔒 Privacy & Local Data
+
+- **Zero file uploads**: Videos and subtitles are read directly from disk via browser `FileSystemFileHandle` objects.
+- **Local persistence**:
+  - Recent course folder handles, cached course trees, and generated thumbnails are stored in your browser's **IndexedDB**.
+  - Playback progress, lesson notes, playback speed, caption preference, and theme are stored in **localStorage**.
+- **No accounts or cloud sync**: Data stays tied to the browser profile you use (clearing site data will clear saved progress and notes — export your `.md` notes if you want a backup).
+- **Analytics**: The hosted deployment includes `@vercel/analytics` for basic page views only; no course names, filenames, or notes are sent.
+
+---
+
+## ⚠️ Honest Limitations
+
+Before you dive in, here's what Foleyo **doesn't** do (or where browser limits apply):
+
+- **Chromium desktop browsers only**: Firefox, Safari, and mobile browsers do not support the full File System Access API (`showDirectoryPicker`), so Foleyo won't work there.
+- **Re-granting folder permission**: Browsers reset disk permissions across sessions, so when you reopen a recent course you'll get a one-click browser prompt to re-allow read access to that folder.
+- **Browser video format limits**: Because playback happens directly in Chromium with no backend transcoding, not all video containers/codecs work (see [Supported & Unsupported Formats](#-supported--unsupported-formats) above).
+- **Cold-offline hosted loading**: Foleyo includes a PWA manifest so you can install it as an app window, but it does **not** ship a service worker yet. Once open it plays local videos offline, or you can run it locally (`npm start`) for 100% offline access anytime.
+- **No cloud sync**: Progress and notes live in your current browser only.
+- **Very large folders**: Courses with hundreds of videos may take a few seconds to scan on first open.
+
 ---
 
 ## 🛠️ Tech Stack
 
 | Technology | Purpose |
 |---|---|
-| [Next.js 16](https://nextjs.org) | App Router, React framework |
-| [TypeScript](https://typescriptlang.org) | Type safety |
-| [Tailwind CSS 4](https://tailwindcss.com) | Styling with custom theme |
-| [vidstack](https://vidstack.io) | Modern video player component |
-| [idb-keyval](https://github.com/jakearchibald/idb-keyval) | IndexedDB wrapper for persisting directory handles |
-| File System Access API | Read local files directly in the browser |
-
----
-
-## ⌨️ Keyboard Shortcuts
-
-| Key | Action |
-|---|---|
-| `Space` | Play / Pause |
-| `←` / `→` | Seek ±5 seconds |
-| `↑` / `↓` | Volume up / down |
-| `F` | Toggle fullscreen |
-| `M` | Toggle mute |
+| [Next.js 16](https://nextjs.org) & [React 19](https://react.dev) | App shell and UI |
+| [TypeScript 5](https://typescriptlang.org) | Type safety |
+| [Tailwind CSS 4](https://tailwindcss.com) | Styling & dark/light theme tokens |
+| [Vidstack](https://vidstack.io) | Video player & customizable controls |
+| [idb-keyval](https://github.com/jakearchibald/idb-keyval) | IndexedDB storage for folder handles & cache |
+| [Vitest](https://vitest.dev) & Testing Library | Unit tests |
 
 ---
 
 ## 📁 Project Structure
 
-```
+```text
 foleyo/
 ├── app/
 │   ├── components/
-│   │   ├── header.tsx          # Top bar with progress, autoplay, theme toggle
-│   │   ├── sidebar.tsx         # Collapsible sidebar with module/lesson list + search
-│   │   ├── video-player.tsx    # vidstack-based player, notes, auto-advance overlay
-│   │   └── welcome-screen.tsx  # Landing page with folder picker & recent courses
+│   │   ├── header.tsx                 # Top bar: progress, watch time, autoplay, theme
+│   │   ├── sidebar.tsx                # Collapsible module/lesson tree, search, refresh
+│   │   ├── video-player.tsx           # Vidstack player, fill-window fullscreen, notes
+│   │   ├── video-player-wrapper.tsx   # Client-only dynamic wrapper (ssr: false)
+│   │   ├── welcome-screen.tsx         # Folder picker, recent library, quick reference
+│   │   ├── error-alert.tsx            # Inline error banner
+│   │   └── focus-ring.ts              # Shared accessible focus styles
 │   ├── context/
-│   │   ├── course-context.tsx  # Central state: course data, navigation, progress
-│   │   ├── use-video-loader.ts # Blob-URL + subtitle lifecycle for the player
-│   │   └── use-course-history.ts  # URL deep-linking and Escape handling
+│   │   ├── __tests__/                 # Tests for Escape / history layering
+│   │   ├── course-context.tsx         # Course state, navigation, autoplay, fullscreen
+│   │   ├── lesson-durations-context.tsx # Background duration state for watch stats
+│   │   ├── theme-context.tsx          # Dark / light theme state
+│   │   ├── use-course-history.ts      # Browser back & Escape-key layer handling
+│   │   ├── use-duration-scanner.ts    # Background video duration scanner
+│   │   └── use-video-loader.ts        # Blob URL & subtitle lifecycle
 │   ├── lib/
-│   │   ├── __tests__/          # Vitest suites (parsing, progress, subtitles, notes)
-│   │   ├── parse-course.ts     # Directory → Course data structure parser
-│   │   ├── progress-store.ts   # localStorage-based progress tracking
-│   │   ├── recent-courses-store.ts  # IndexedDB store for recent courses & dir handles
-│   │   ├── subtitles.ts        # SRT→VTT conversion + subtitle matching
-│   │   └── use-notes.ts        # Auto-saving per-lesson notes
+│   │   ├── __tests__/                 # Vitest suites (parsing, progress, subtitles, notes)
+│   │   ├── parse-course.ts            # Recursive folder → Course parser
+│   │   ├── progress-store.ts          # localStorage progress & watch-time stats
+│   │   ├── recent-courses-store.ts    # IndexedDB handles, cache & library metadata
+│   │   ├── subtitles.ts               # SRT → WebVTT conversion & track deduplication
+│   │   ├── thumbnail-generator.ts     # First-lesson canvas thumbnail generator
+│   │   └── use-notes.ts               # Auto-saving per-lesson notes hook
 │   ├── types/
-│   │   └── file-system.d.ts    # TypeScript declarations for File System Access API
-│   ├── types.ts                # Core data types (Course, Module, Lesson, Progress)
-│   ├── globals.css             # Theme variables, animations, dark/light mode
-│   ├── layout.tsx              # Root layout with fonts and metadata
-│   ├── manifest.ts             # PWA manifest
-│   └── page.tsx                # Main entry point
-├── public/
-├── next.config.ts              # Security headers
-├── package.json
-└── tsconfig.json
+│   │   └── file-system.d.ts           # File System Access API TypeScript definitions
+│   ├── types.ts                       # Core types & codec-risk helpers
+│   ├── globals.css                    # Theme variables, animations, player overrides
+│   ├── layout.tsx                     # Root layout, fonts & metadata
+│   ├── manifest.ts                    # PWA manifest
+│   └── page.tsx                       # App entry & browser capability check
+├── public/                            # Logo & PWA icons
+├── next.config.ts                     # Security headers
+├── vitest.config.ts                   # Test runner config
+└── package.json
 ```
 
 ---
 
 ## 🤝 Contributing
 
-Contributions are welcome! Here's how to get started:
+Contributions, bug reports, and ideas are welcome!
 
-### 1. Fork & Clone
+1. Fork & clone the repository, then run `npm install`
+2. Create a branch: `git checkout -b feature/your-feature`
+3. Follow the existing conventions:
+   - Use CSS theme tokens from `app/globals.css` (test in both dark and light mode)
+   - Keep everything client-side — no backend dependencies
+4. Verify before opening a PR:
+   ```bash
+   npm run typecheck && npm run lint && npm test
+   ```
+5. Open a PR describing what changed and why (screenshots are always helpful for UI changes)
 
-```bash
-git clone https://github.com/rafiqulshopon/foleyo.git
-cd foleyo
-npm install
-```
+### Good Ideas to Contribute
 
-### 2. Create a Branch
-
-```bash
-git checkout -b feature/your-feature-name
-```
-
-### 3. Make Changes
-
-- Follow the existing code style (TypeScript, functional components, React hooks)
-- All pages/components must be `'use client'` — this is a fully client-side app
-- Use the CSS custom properties from `globals.css` for theming — don't hardcode colors
-- Test in both light and dark mode
-
-### 4. Test
-
-```bash
-# Type check
-npm run typecheck
-
-# Lint
-npm run lint
-
-# Unit tests
-npm run test
-
-# Dev server
-npm run dev
-```
-
-### 5. Submit a PR
-
-- Write a clear description of what changed and why
-- Include screenshots for UI changes
-- Reference any related issues
-
-### Ideas for Contribution
-
-- 🎨 Custom themes / accent color picker
-- 🎧 Audio-only playback mode
-- 📴 Service worker for true offline usage (the app is manifest-only today)
-
----
-
-## ⚠️ Known Limitations
-
-- **Browser support**: Only works in Chromium browsers (Chrome, Edge, Brave, Arc) — Firefox and Safari don't support the File System Access API
-- **MKV & MOV files**: these containers play in Chrome, but depend on the codecs inside — H.264/AAC works; H.265/HEVC needs hardware decoding, Dolby Digital (AC-3) and ProRes don't play. Convert to MP4 (H.264) for guaranteed compatibility
-- **MPEG-TS (`.ts`) files**: browsers can't play raw TS — remux to MP4 without re-encoding when it holds H.264/AAC: `ffmpeg -i input.ts -c copy output.mp4`
-- **No mobile support**: File System Access API is desktop-only
-- **Large courses**: Courses with 500+ lessons may take a moment to parse on first open
+- 📴 Service worker for true cold-offline PWA loading
+- 💾 Export/import backup for progress and notes across browsers
+- 🎨 Custom accent colors / themes
+- 🎧 Audio-only / podcast-style playback mode
 
 ---
 
 ## 📄 License
 
-This project is licensed under the [MIT License](LICENSE).
+Licensed under the [MIT License](LICENSE).
 
 ---
 
 <div align="center">
 
-**Built with ❤️ for offline learners everywhere.**
+**Built for learners who want a calm, private way to watch local courses.**
 
 [Report Bug](https://github.com/rafiqulshopon/foleyo/issues) · [Request Feature](https://github.com/rafiqulshopon/foleyo/issues)
 
