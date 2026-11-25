@@ -40,11 +40,15 @@ export function BookmarksPanel({
   onDoneEditing: () => void;
 }) {
   const inputRefs = useRef(new Map<string, HTMLInputElement>());
+  const lastFocusedNonceRef = useRef<number | null>(null);
 
   useEffect(() => {
-    if (!focusRequest) return;
+    if (!focusRequest || lastFocusedNonceRef.current === focusRequest.nonce) {
+      return;
+    }
     const input = inputRefs.current.get(focusRequest.id);
     if (!input) return;
+    lastFocusedNonceRef.current = focusRequest.nonce;
     input.focus({ preventScroll: true });
     input.scrollIntoView({ block: "nearest", behavior: "smooth" });
     input.select();
