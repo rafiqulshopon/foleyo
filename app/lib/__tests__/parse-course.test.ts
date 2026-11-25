@@ -207,4 +207,78 @@ describe('parseCourseDirectory', () => {
     expect(course.modules[0].lessons[1].chapters?.format).toBe('text');
     expect(course.modules[0].lessons[1].chapters?.fileHandle.name).toBe('02_Next.txt');
   });
+
+  it('includes .html and .htm articles as lessons interleaved in natural order', async () => {
+    const root = new FakeDirHandle('Course');
+    root.addFile('01_Intro.mp4');
+    root.addFile('02_Reading_Guide.html');
+    root.addFile('03_Setup.mp4');
+    root.addFile('04_Summary.htm');
+
+    const course = await parseCourseDirectory(root);
+    expect(course.totalLessons).toBe(4);
+    expect(
+      course.modules[0].lessons.map((l) => ({ title: l.title, kind: l.kind }))
+    ).toEqual([
+      { title: 'Intro', kind: 'video' },
+      { title: 'Reading Guide', kind: 'html' },
+      { title: 'Setup', kind: 'video' },
+      { title: 'Summary', kind: 'html' },
+    ]);
+  });
+
+  it('lists PDF, markdown, text, and zip files as module resources (excluding subtitles/internal files)', async () => {
+    const root = new FakeDirHandle('Course');
+    const mod = root.addDir('01_Basics');
+    mod.addFile('01_Intro.mp4');
+    mod.addFile('01_Intro.en.vtt');
+    mod.addFile('01_Intro.chapters.txt');
+    mod.addFile('01_Intro.description');
+    mod.addFile('.DS_Store');
+    mod.addFile('01_Slides.pdf');
+    mod.addFile('02_Notes.md');
+    mod.addFile('03_Starter.zip');
+    mod.addFile('04_Cheatsheet.txt');
+
+    const course = await parseCourseDirectory(root);
+    const resources = course.modules[0].resources ?? [];
+    expect(resources.map((r) => ({ name: r.name, kind: r.kind }))).toEqual([
+      { name: '01_Slides.pdf', kind: 'pdf' },
+      { name: '02_Notes.md', kind: 'markdown' },
+      { name: '03_Starter.zip', kind: 'archive' },
+      { name: '04_Cheatsheet.txt', kind: 'text' },
+    ]);
+  });
+
+  it('attaches code project folders as folder resources instead of parsing their index.html as lessons', async () => {
+    const root = new FakeDirHandle('Course');
+    const mod = root.addDir('01_Module');
+    mod.addFile('01_Lesson.mp4');
+    const codeDir = mod.addDir('starter-code');
+    codeDir.addFile('package.json');
+    codeDir.addFile('index.html');
+    codeDir.addFile('app.js');
+
+    const course = await parseCourseDirectory(root);
+    expect(course.modules).toHaveLength(1);
+    expect(course.totalLessons).toBe(1);
+    const resources = course.modules[0].resources ?? [];
+    expect(resources).toHaveLength(1);
+    expect(resources[0].kind).toBe('folder');
+    expect(resources[0].name).toBe('starter-code');
+  });
+
+  it('surfaces root-level resources when lessons live in subfolders', async () => {
+    const root = new FakeDirHandle('Course');
+    root.addFile('syllabus.pdf');
+    root.addDir('source-code').addFile('main.py');
+    root.addDir('01_Module').addFile('01_Intro.mp4');
+
+    const course = await parseCourseDirectory(root);
+    expect(course.modules).toHaveLength(1);
+    expect(course.resources?.map((r) => ({ name: r.name, kind: r.kind }))).toEqual([
+      { name: 'source-code', kind: 'folder' },
+      { name: 'syllabus.pdf', kind: 'pdf' },
+    ]);
+  });
 });

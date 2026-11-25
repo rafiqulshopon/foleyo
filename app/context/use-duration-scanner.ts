@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { Course } from '@/app/types';
+import { getLessonKind, type Course } from '@/app/types';
 
 /**
  * Background scan: extract duration metadata from every video in the course,
@@ -37,7 +37,9 @@ export function useDurationScanner(course: Course | null) {
     const blobUrls: string[] = [];
 
     async function scanDurations() {
-      const allLessons = course!.modules.flatMap((m) => m.lessons);
+      const allLessons = course!.modules
+        .flatMap((m) => m.lessons)
+        .filter((l) => getLessonKind(l) === 'video');
 
       // Process in small batches to avoid overwhelming the browser
       const BATCH_SIZE = 3;

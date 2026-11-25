@@ -17,6 +17,27 @@ export interface ChapterSource {
   fileHandle: FileSystemFileHandle;
 }
 
+export type LessonKind = 'video' | 'html';
+
+export type ResourceKind =
+  | 'pdf'
+  | 'markdown'
+  | 'text'
+  | 'archive'
+  | 'folder'
+  | 'other';
+
+export interface CourseResource {
+  id: string;
+  name: string;
+  title: string;
+  kind: ResourceKind;
+  moduleId: string;
+  extension?: string;
+  fileHandle?: FileSystemFileHandle;
+  dirHandle?: FileSystemDirectoryHandle;
+}
+
 export interface Lesson {
   id: string;
   title: string;
@@ -25,6 +46,8 @@ export interface Lesson {
   moduleId: string;
   index: number; // global index across all modules
   localIndex: number; // index within the module
+  /** Defaults to 'video' when omitted (backwards compatibility with cached courses). */
+  kind?: LessonKind;
   subtitles?: SubtitleInfo[];
   chapters?: ChapterSource;
 }
@@ -34,6 +57,7 @@ export interface Module {
   title: string;
   folderName: string;
   lessons: Lesson[];
+  resources?: CourseResource[];
   index: number;
 }
 
@@ -41,6 +65,8 @@ export interface Course {
   name: string;
   modules: Module[];
   totalLessons: number;
+  /** Non-video resources located at the course root when root has no lessons of its own. */
+  resources?: CourseResource[];
 }
 
 // Progress tracking types
@@ -71,8 +97,38 @@ export const VIDEO_EXTENSIONS = [
 
 export const SUBTITLE_EXTENSIONS = ['.srt', '.vtt'] as const;
 
+export const HTML_EXTENSIONS = ['.html', '.htm'] as const;
+
+export const PDF_EXTENSIONS = ['.pdf'] as const;
+export const MARKDOWN_EXTENSIONS = ['.md', '.markdown'] as const;
+export const TEXT_EXTENSIONS = ['.txt'] as const;
+export const ARCHIVE_EXTENSIONS = ['.zip', '.rar', '.7z', '.tar', '.gz', '.tgz'] as const;
+
 /** Text files that may carry chapter timestamps for the matching video. */
 export const CHAPTER_TEXT_EXTENSIONS = ['.chapters.txt', '.txt', '.description', '.md'] as const;
+
+export function getLessonKind(lesson: Pick<Lesson, 'kind'>): LessonKind {
+  return lesson.kind ?? 'video';
+}
+
+export function isHtmlFile(fileName: string): boolean {
+  const lower = fileName.toLowerCase();
+  return HTML_EXTENSIONS.some((ext) => lower.endsWith(ext));
+}
+
+export function classifyResourceFile(fileName: string): ResourceKind {
+  const lower = fileName.toLowerCase();
+  if (PDF_EXTENSIONS.some((ext) => lower.endsWith(ext))) return 'pdf';
+  if (MARKDOWN_EXTENSIONS.some((ext) => lower.endsWith(ext))) return 'markdown';
+  if (TEXT_EXTENSIONS.some((ext) => lower.endsWith(ext))) return 'text';
+  if (ARCHIVE_EXTENSIONS.some((ext) => lower.endsWith(ext))) return 'archive';
+  return 'other';
+}
+
+/** Whether a resource opens inside Foleyo vs. in the system/browser download handler. */
+export function isInAppResource(kind: ResourceKind): boolean {
+  return kind === 'pdf' || kind === 'markdown' || kind === 'text' || kind === 'folder';
+}
 
 const VIDEO_MIME_TYPES: Record<string, VideoMimeType> = {
   '.mp4': 'video/mp4',

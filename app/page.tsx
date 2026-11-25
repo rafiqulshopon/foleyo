@@ -6,9 +6,11 @@ import { ThemeProvider } from '@/app/context/theme-context';
 import { Header } from '@/app/components/header';
 import { Sidebar } from '@/app/components/sidebar';
 import { VideoPlayer } from '@/app/components/video-player-wrapper';
+import { HtmlLessonViewer } from '@/app/components/html-lesson-viewer';
+import { ResourceViewer } from '@/app/components/resource-viewer';
 import { WelcomeScreen } from '@/app/components/welcome-screen';
 import { ErrorAlert } from '@/app/components/error-alert';
-import { CODEC_WARNING } from '@/app/types';
+import { CODEC_WARNING, getLessonKind } from '@/app/types';
 import { useSyncExternalStore, useState } from 'react';
 
 // Feature detection can't change at runtime — a no-op subscription is enough.
@@ -73,7 +75,15 @@ function BrowserCheck() {
 }
 
 function CourseApp() {
-  const { course, error, hasUnsupportedFormat, invalidLink } = useCourse();
+  const {
+    course,
+    currentLesson,
+    activeResource,
+    closeResource,
+    error,
+    hasUnsupportedFormat,
+    invalidLink,
+  } = useCourse();
   const [unsupportedDismissed, setUnsupportedDismissed] = useState(false);
 
   return (
@@ -158,7 +168,16 @@ function CourseApp() {
         ) : course ? (
           <>
             <Sidebar />
-            <VideoPlayer />
+            {activeResource ? (
+              <ResourceViewer
+                resource={activeResource}
+                onClose={closeResource}
+              />
+            ) : currentLesson && getLessonKind(currentLesson) === 'html' ? (
+              <HtmlLessonViewer />
+            ) : (
+              <VideoPlayer />
+            )}
           </>
         ) : (
           <WelcomeScreen />

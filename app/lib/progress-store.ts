@@ -93,6 +93,49 @@ export function toggleLessonComplete(
 }
 
 /**
+ * Mark a set of lessons (e.g. an entire module) completed or incomplete.
+ * Pure — preserves lastLessonId and other lessons.
+ */
+export function setModuleCompletion(
+  progress: CourseProgress,
+  lessonIds: string[],
+  completed: boolean
+): CourseProgress {
+  if (lessonIds.length === 0) return progress;
+  const now = Date.now();
+  const nextLessons = { ...progress.lessons };
+  for (const id of lessonIds) {
+    const current = getLessonProgress(progress, id);
+    nextLessons[id] = {
+      ...current,
+      completed,
+      ...(completed ? { lastPosition: 0 } : {}),
+      lastWatched: now,
+    };
+  }
+  return {
+    ...progress,
+    lessons: nextLessons,
+    lastOpened: now,
+  };
+}
+
+/**
+ * Reset all progress for a course, optionally preserving the currently open lesson ID.
+ */
+export function resetCourseProgress(
+  courseName: string,
+  lastLessonId: string = ''
+): CourseProgress {
+  return {
+    courseName,
+    lastLessonId,
+    lessons: {},
+    lastOpened: Date.now(),
+  };
+}
+
+/**
  * Create a fresh progress object for a new course.
  */
 export function createEmptyProgress(courseName: string): CourseProgress {

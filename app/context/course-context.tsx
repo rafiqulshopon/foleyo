@@ -10,7 +10,15 @@ import {
   useRef,
   type ReactNode,
 } from 'react';
-import { Course, Lesson, CourseProgress, hasCodecRisk } from '@/app/types';
+import {
+  Course,
+  CourseResource,
+  Lesson,
+  CourseProgress,
+  getLessonKind,
+  hasCodecRisk,
+  isInAppResource,
+} from '@/app/types';
 import { parseCourseDirectory } from '@/app/lib/parse-course';
 import { generateCourseThumbnail } from '@/app/lib/thumbnail-generator';
 import {
@@ -19,7 +27,15 @@ import {
   createEmptyProgress,
   updateLessonProgress,
   toggleLessonComplete,
+  setModuleCompletion,
+  resetCourseProgress,
 } from '@/app/lib/progress-store';
+import {
+  readLessonOverrides,
+  getVisibleLessons,
+  setLessonHidden,
+} from '@/app/lib/lesson-overrides';
+import { downloadFileHandle } from '@/app/lib/open-resource';
 import {
   saveRecentCourse,
   updateRecentCourseMetadata,
@@ -53,6 +69,7 @@ interface CourseContextType {
   // State
   course: Course | null;
   currentLesson: Lesson | null;
+  activeResource: CourseResource | null;
   videoUrl: string | null;
   subtitleTracks: SubtitleTrack[];
   chapters: LessonChapters | null;
@@ -71,6 +88,8 @@ interface CourseContextType {
   openFolder: () => Promise<void>;
   resumeRecentCourse: (folderName: string) => Promise<void>;
   selectLesson: (lesson: Lesson) => Promise<void>;
+  openResource: (resource: CourseResource) => Promise<void>;
+  closeResource: () => void;
   nextLesson: () => void;
   prevLesson: () => void;
   toggleAutoplay: () => void;
@@ -78,6 +97,9 @@ interface CourseContextType {
   toggleWindowFullscreen: () => void;
   exitWindowFullscreen: () => void;
   markComplete: (lessonId: string) => void;
+  setModuleComplete: (moduleId: string, completed: boolean) => void;
+  resetProgress: () => void;
+  hideLesson: (lessonId: string) => void;
   updatePosition: (position: number) => void;
   onVideoEnded: () => void;
   cancelAutoAdvance: () => void;
@@ -97,6 +119,7 @@ export function useCourse() {
 export function CourseProvider({ children }: { children: ReactNode }) {
   const [course, setCourse] = useState<Course | null>(null);
   const [currentLesson, setCurrentLesson] = useState<Lesson | null>(null);
+  const [activeResource, setActiveResource] = useState<CourseResource | null>(null);
   const [progress, setProgress] = useState<CourseProgress>(
     createEmptyProgress('')
   );
@@ -172,6 +195,7 @@ export function CourseProvider({ children }: { children: ReactNode }) {
 
       cancelAutoAdvance();
       setWindowFullscreen(false);
+      setActiveResource(null);
       resetVideo();
       setCourse(null);
       setCurrentLesson(null);
@@ -215,10 +239,11 @@ export function CourseProvider({ children }: { children: ReactNode }) {
     };
   }, [clearAutoAdvanceTimer]);
 
-  // Get all lessons flat
+  // Get all visible (non-hidden) lessons in course order
   const getAllLessons = useCallback((): Lesson[] => {
     if (!course) return [];
-    return course.modules.flatMap((m) => m.lessons);
+    const overrides = readLessonOverrides(course.name);
+    return getVisibleLessons(course, overrides);
   }, [course]);
 
   /**
@@ -244,34 +269,42 @@ export function CourseProvider({ children }: { children: ReactNode }) {
       }
       setProgress(courseProgress);
 
-      // Resume last lesson or start from first
+      // Resume last lesson or start from first visible lesson
       const allLessons = parsedCourse.modules.flatMap((m) => m.lessons);
+      const overrides = readLessonOverrides(parsedCourse.name);
+      const visibleLessons = getVisibleLessons(parsedCourse, overrides);
+      const candidates = visibleLessons.length > 0 ? visibleLessons : allLessons;
       let resumeLesson: Lesson | undefined;
 
       if (courseProgress.lastLessonId) {
-        resumeLesson = allLessons.find(
+        resumeLesson = candidates.find(
           (l) => l.id === courseProgress!.lastLessonId
         );
       }
 
       if (!resumeLesson) {
-        resumeLesson = allLessons[0];
+        resumeLesson = candidates[0];
       }
 
+      setActiveResource(null);
       if (resumeLesson) {
-        const url = await loadVideo(resumeLesson);
-        showVideo(url);
+        if (getLessonKind(resumeLesson) === 'video') {
+          const url = await loadVideo(resumeLesson);
+          showVideo(url);
+        } else {
+          resetVideo();
+        }
         setCurrentLesson(resumeLesson);
       }
 
       // Find the current lesson info for the recent course card
-      const currentLessonForCard = resumeLesson || allLessons[0];
+      const currentLessonForCard = resumeLesson || candidates[0];
       const currentModule = parsedCourse.modules.find(
         (m) => m.id === currentLessonForCard?.moduleId
       );
 
       // Calculate completed count from progress
-      const completedCount = allLessons.filter(
+      const completedCount = candidates.filter(
         (l) => courseProgress!.lessons[l.id]?.completed
       ).length;
       // saveRecentCourse below writes this count; remember it so the
@@ -284,23 +317,23 @@ export function CourseProvider({ children }: { children: ReactNode }) {
       const recentEntry: RecentCourse = {
         name: parsedCourse.name,
         folderName: dirHandle.name,
-        totalLessons: parsedCourse.totalLessons,
+        totalLessons: candidates.length,
         completedLessons: completedCount,
         totalModules: parsedCourse.modules.length,
         lastOpenedAt: Date.now(),
         lastLessonTitle: currentLessonForCard?.title || '',
         lastLessonModule: currentModule?.title || '',
         percentage:
-          parsedCourse.totalLessons > 0
-            ? Math.round((completedCount / parsedCourse.totalLessons) * 100)
+          candidates.length > 0
+            ? Math.round((completedCount / candidates.length) * 100)
             : 0,
       };
       await saveRecentCourse(recentEntry, dirHandle);
 
-      // Trigger thumbnail generation in the background
-      const firstLesson = parsedCourse.modules[0]?.lessons[0];
-      if (firstLesson) {
-        generateCourseThumbnail(parsedCourse.name, firstLesson).catch(console.error);
+      // Trigger thumbnail generation in the background from the first video lesson
+      const firstVideoLesson = allLessons.find((l) => getLessonKind(l) === 'video');
+      if (firstVideoLesson) {
+        generateCourseThumbnail(parsedCourse.name, firstVideoLesson).catch(console.error);
       }
 
       setCourse(parsedCourse);
@@ -315,7 +348,7 @@ export function CourseProvider({ children }: { children: ReactNode }) {
         window.history.replaceState({ isCourseOpen: true, fromDirectLink: false }, '', urlParam);
       }
     },
-    [loadVideo, showVideo]
+    [loadVideo, showVideo, resetVideo]
   );
 
   // Open folder picker
@@ -338,7 +371,7 @@ export function CourseProvider({ children }: { children: ReactNode }) {
 
       if (parsedCourse.totalLessons === 0) {
         setError(
-          'No video files found in the selected folder. Make sure your course folder contains .mp4, .m4v, .webm, .ogv, .mkv, or .mov files.'
+          'No video or HTML lesson files found in the selected folder. Make sure your course folder contains .mp4, .m4v, .webm, .ogv, .mkv, .mov, or .html files.'
         );
         setIsLoading(false);
         return;
@@ -405,19 +438,51 @@ export function CourseProvider({ children }: { children: ReactNode }) {
   const selectLesson = useCallback(
     async (lesson: Lesson) => {
       cancelAutoAdvance(); // manual navigation cancels any pending countdown
+      setActiveResource(null);
       setError(null);
       try {
-        const url = await loadVideo(lesson);
-        showVideo(url);
+        if (getLessonKind(lesson) === 'video') {
+          const url = await loadVideo(lesson);
+          showVideo(url);
+        } else {
+          resetVideo();
+        }
         setCurrentLesson(lesson);
         setProgress((prev) => updateLessonProgress(prev, lesson.id, {}));
       } catch (e) {
         console.error('Error loading lesson:', e);
-        setError(`Failed to load video: ${e instanceof Error ? e.message : 'Unknown error'}`);
+        setError(`Failed to load lesson: ${e instanceof Error ? e.message : 'Unknown error'}`);
       }
     },
-    [loadVideo, showVideo, cancelAutoAdvance]
+    [loadVideo, showVideo, resetVideo, cancelAutoAdvance]
   );
+
+  // Open a non-video course resource (in-app for PDF/MD/TXT/Folder, system/download for others)
+  const openResource = useCallback(
+    async (resource: CourseResource) => {
+      cancelAutoAdvance();
+      setError(null);
+      if (isInAppResource(resource.kind)) {
+        setActiveResource(resource);
+        return;
+      }
+      if (resource.fileHandle) {
+        try {
+          await downloadFileHandle(resource.fileHandle, resource.name);
+        } catch (e) {
+          console.error('Error opening resource:', e);
+          setError(
+            `Failed to open resource: ${e instanceof Error ? e.message : 'Unknown error'}`
+          );
+        }
+      }
+    },
+    [cancelAutoAdvance]
+  );
+
+  const closeResource = useCallback(() => {
+    setActiveResource(null);
+  }, []);
 
   // Refresh course to detect new files
   const refreshCourse = useCallback(async () => {
@@ -519,6 +584,52 @@ export function CourseProvider({ children }: { children: ReactNode }) {
     setProgress((prev) => toggleLessonComplete(prev, lessonId));
   }, []);
 
+  // Mark an entire module complete or incomplete
+  const setModuleComplete = useCallback(
+    (moduleId: string, completed: boolean) => {
+      if (!course) return;
+      const mod = course.modules.find((m) => m.id === moduleId);
+      if (!mod) return;
+      const overrides = readLessonOverrides(course.name);
+      const visibleIds = mod.lessons
+        .filter((l) => !overrides.hidden?.[l.id])
+        .map((l) => l.id);
+      const targetIds =
+        visibleIds.length > 0 ? visibleIds : mod.lessons.map((l) => l.id);
+      setProgress((prev) => setModuleCompletion(prev, targetIds, completed));
+    },
+    [course]
+  );
+
+  // Reset all progress for the current course
+  const resetProgress = useCallback(() => {
+    if (!course) return;
+    cancelAutoAdvance();
+    setProgress(resetCourseProgress(course.name, currentLesson?.id ?? ''));
+  }, [course, currentLesson, cancelAutoAdvance]);
+
+  // Hide a lesson (without touching disk); advance if it's currently open
+  const hideLesson = useCallback(
+    (lessonId: string) => {
+      if (!course) return;
+      const visibleBefore = getVisibleLessons(
+        course,
+        readLessonOverrides(course.name)
+      );
+      setLessonHidden(course.name, lessonId, true);
+
+      if (currentLesson?.id === lessonId) {
+        const idx = visibleBefore.findIndex((l) => l.id === lessonId);
+        const replacement =
+          visibleBefore[idx + 1] ?? visibleBefore[idx - 1] ?? null;
+        if (replacement) {
+          selectLesson(replacement);
+        }
+      }
+    },
+    [course, currentLesson, selectLesson]
+  );
+
   // Sync the completed count to the recent-courses card — only when the
   // count actually changes for this course.
   useEffect(() => {
@@ -571,7 +682,7 @@ export function CourseProvider({ children }: { children: ReactNode }) {
       const status = await dirHandleRef.current.requestPermission({ mode: 'read' });
       if (status === 'granted') {
         setRequiresPermission(false);
-        if (currentLesson) {
+        if (currentLesson && getLessonKind(currentLesson) === 'video') {
           const url = await loadVideo(currentLesson);
           showVideo(url);
         }
@@ -641,6 +752,7 @@ export function CourseProvider({ children }: { children: ReactNode }) {
     () => ({
       course,
       currentLesson,
+      activeResource,
       videoUrl,
       subtitleTracks,
       chapters,
@@ -657,6 +769,8 @@ export function CourseProvider({ children }: { children: ReactNode }) {
       openFolder,
       resumeRecentCourse,
       selectLesson,
+      openResource,
+      closeResource,
       nextLesson,
       prevLesson,
       toggleAutoplay,
@@ -664,6 +778,9 @@ export function CourseProvider({ children }: { children: ReactNode }) {
       toggleWindowFullscreen,
       exitWindowFullscreen,
       markComplete,
+      setModuleComplete,
+      resetProgress,
+      hideLesson,
       updatePosition,
       onVideoEnded,
       cancelAutoAdvance,
@@ -674,6 +791,7 @@ export function CourseProvider({ children }: { children: ReactNode }) {
     [
       course,
       currentLesson,
+      activeResource,
       videoUrl,
       subtitleTracks,
       chapters,
@@ -690,6 +808,8 @@ export function CourseProvider({ children }: { children: ReactNode }) {
       openFolder,
       resumeRecentCourse,
       selectLesson,
+      openResource,
+      closeResource,
       nextLesson,
       prevLesson,
       toggleAutoplay,
@@ -697,6 +817,9 @@ export function CourseProvider({ children }: { children: ReactNode }) {
       toggleWindowFullscreen,
       exitWindowFullscreen,
       markComplete,
+      setModuleComplete,
+      resetProgress,
+      hideLesson,
       updatePosition,
       onVideoEnded,
       cancelAutoAdvance,

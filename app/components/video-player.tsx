@@ -26,6 +26,11 @@ import "@vidstack/react/player/styles/default/layouts/video.css";
 import { useCourse, AUTO_ADVANCE_DELAY_MS } from "@/app/context/course-context";
 import { useLessonDurations } from "@/app/context/lesson-durations-context";
 import { getLessonProgress } from "@/app/lib/progress-store";
+import {
+  getDisplayTitle,
+  getVisibleLessons,
+  useLessonOverrides,
+} from "@/app/lib/lesson-overrides";
 import { useNotes, useCourseNotes } from "@/app/lib/use-notes";
 import {
   addBookmark,
@@ -74,6 +79,7 @@ export function VideoPlayer() {
     currentLesson,
     videoUrl,
     progress,
+    markComplete,
     updatePosition,
     onVideoEnded,
     nextLesson,
@@ -123,6 +129,7 @@ export function VideoPlayer() {
   const courseNotes = useCourseNotes(course?.name);
   const courseBookmarks = useCourseBookmarks(course?.name);
   const courseSettings = useCourseSettings(course?.name);
+  const lessonOverrides = useLessonOverrides(course?.name);
 
   const isReady = videoUrl !== null && readyUrl === videoUrl;
   const videoDuration =
@@ -175,7 +182,7 @@ export function VideoPlayer() {
         const bookmarks = courseBookmarks[lesson.id] ?? [];
         if (lessonNote !== "" || bookmarks.length > 0) {
           moduleHasNotes = true;
-          moduleMarkdown += `### ${lesson.title}\n`;
+          moduleMarkdown += `### ${getDisplayTitle(lesson, lessonOverrides)}\n`;
           if (bookmarks.length > 0) {
             bookmarks.forEach((b) => {
               const ts = `**${formatTimestamp(b.time)}**`;
@@ -205,7 +212,7 @@ export function VideoPlayer() {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-  }, [course, courseNotes, courseBookmarks, currentLesson, note]);
+  }, [course, courseNotes, courseBookmarks, currentLesson, note, lessonOverrides]);
 
   // Per-course playback rate, falling back to the global saved speed
   const [globalPlaybackRate, setGlobalPlaybackRate] = useState<number>(() =>
@@ -598,13 +605,16 @@ export function VideoPlayer() {
     onVideoEnded();
   }, [loop, onVideoEnded]);
 
-  // Determine if prev/next are available
-  const allLessons = course?.modules.flatMap((m) => m.lessons) || [];
+  // Determine if prev/next are available (over visible, non-hidden lessons)
+  const allLessons = useMemo(
+    () => getVisibleLessons(course, lessonOverrides),
+    [course, lessonOverrides],
+  );
   const currentIdx = currentLesson
     ? allLessons.findIndex((l) => l.id === currentLesson.id)
     : -1;
   const hasPrev = currentIdx > 0;
-  const hasNext = currentIdx < allLessons.length - 1;
+  const hasNext = currentIdx !== -1 && currentIdx < allLessons.length - 1;
 
   // Global keyboard shortcuts for study & lesson navigation (ignored in inputs)
   useEffect(() => {
@@ -688,16 +698,50 @@ export function VideoPlayer() {
         }`}
       >
         {/* Lesson title */}
-        <div className="mb-4">
-          <p className="text-xs text-foreground-subtle mb-1 font-medium uppercase tracking-wider">
-            {
-              course?.modules.find((m) => m.id === currentLesson.moduleId)
-                ?.title
+        <div className="mb-4 flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <p className="text-xs text-foreground-subtle mb-1 font-medium uppercase tracking-wider">
+              {
+                course?.modules.find((m) => m.id === currentLesson.moduleId)
+                  ?.title
+              }
+            </p>
+            <h1 className="text-xl font-semibold text-foreground">
+              {getDisplayTitle(currentLesson, lessonOverrides)}
+            </h1>
+          </div>
+          <button
+            onClick={() => markComplete(currentLesson.id)}
+            aria-pressed={getLessonProgress(progress, currentLesson.id).completed}
+            className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${FOCUS_RING} ${
+              getLessonProgress(progress, currentLesson.id).completed
+                ? "bg-success/15 border-success/30 text-success hover:bg-success/20"
+                : "bg-surface hover:bg-surface-hover border-border text-foreground-muted hover:text-foreground"
+            }`}
+            title={
+              getLessonProgress(progress, currentLesson.id).completed
+                ? "Mark lesson as incomplete"
+                : "Mark lesson as complete"
             }
-          </p>
-          <h1 className="text-xl font-semibold text-foreground">
-            {currentLesson.title}
-          </h1>
+          >
+            <svg
+              width="13"
+              height="13"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+            <span className="hidden sm:inline">
+              {getLessonProgress(progress, currentLesson.id).completed
+                ? "Completed"
+                : "Mark complete"}
+            </span>
+          </button>
         </div>
 
         {/* Video player */}
@@ -821,6 +865,7 @@ export function VideoPlayer() {
           {pendingNext && autoAdvance && (
             <AutoAdvanceOverlay
               next={pendingNext}
+              nextTitle={getDisplayTitle(pendingNext, lessonOverrides)}
               endsAt={autoAdvance.endsAt}
               onCancel={cancelAutoAdvance}
               containerRef={playerContainerRef}
@@ -1036,11 +1081,13 @@ export function VideoPlayer() {
  */
 function AutoAdvanceOverlay({
   next,
+  nextTitle,
   endsAt,
   onCancel,
   containerRef,
 }: {
   next: Lesson;
+  nextTitle: string;
   endsAt: number;
   onCancel: () => void;
   containerRef: RefObject<HTMLDivElement | null>;
@@ -1069,14 +1116,14 @@ function AutoAdvanceOverlay({
     <div
       className="absolute inset-0 z-10 flex items-center justify-center bg-black/70"
       role="dialog"
-      aria-label={`Up next: ${next.title}. Press Escape or Cancel to stay on this lesson.`}
+      aria-label={`Up next: ${nextTitle || next.title}. Press Escape or Cancel to stay on this lesson.`}
     >
       <div className="flex flex-col items-center gap-2.5 max-w-md px-6 text-center">
         <p className="font-mono text-[11px] uppercase tracking-[0.15em] text-white/50">
           Up next
         </p>
         <p className="text-sm font-medium text-white line-clamp-2">
-          {next.title}
+          {nextTitle || next.title}
         </p>
         <div className="mt-1.5 flex items-center gap-3">
           <button

@@ -10,6 +10,10 @@ import {
   computeWatchTimeStats,
   getCompletionStats,
 } from '@/app/lib/progress-store';
+import {
+  getVisibleLessons,
+  useLessonOverrides,
+} from '@/app/lib/lesson-overrides';
 
 function formatDuration(totalSeconds: number): string {
   if (totalSeconds <= 0) return '0m';
@@ -95,10 +99,12 @@ export function Header() {
     closeCourse,
   } = useCourse();
   const { lessonDurations } = useLessonDurations();
+  const overrides = useLessonOverrides(course?.name);
 
+  const visibleLessons = getVisibleLessons(course, overrides);
   const stats = getCompletionStats(
     progress,
-    course ? course.modules.flatMap((m) => m.lessons.map((l) => l.id)) : []
+    visibleLessons.map((l) => l.id)
   );
   const watchStats = computeWatchTimeStats(course, progress, lessonDurations);
 

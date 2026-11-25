@@ -5,6 +5,8 @@ import {
   createEmptyProgress,
   updateLessonProgress,
   toggleLessonComplete,
+  setModuleCompletion,
+  resetCourseProgress,
   getCompletionStats,
   getLessonProgress,
   computeWatchTimeStats,
@@ -87,6 +89,34 @@ describe('toggleLessonComplete', () => {
 
     p = toggleLessonComplete(p, 'a');
     expect(p.lessons.a.completed).toBe(false);
+  });
+});
+
+describe('setModuleCompletion', () => {
+  it('marks all lessons in a module complete or incomplete without touching other lessons', () => {
+    let p = createEmptyProgress('Course');
+    p = updateLessonProgress(p, 'other', { completed: true, lastPosition: 20 });
+    p = updateLessonProgress(p, 'm1/a', { lastPosition: 30 });
+
+    const done = setModuleCompletion(p, ['m1/a', 'm1/b'], true);
+    expect(done.lessons['m1/a'].completed).toBe(true);
+    expect(done.lessons['m1/a'].lastPosition).toBe(0);
+    expect(done.lessons['m1/b'].completed).toBe(true);
+    expect(done.lessons['other'].completed).toBe(true);
+
+    const undone = setModuleCompletion(done, ['m1/a', 'm1/b'], false);
+    expect(undone.lessons['m1/a'].completed).toBe(false);
+    expect(undone.lessons['m1/b'].completed).toBe(false);
+    expect(undone.lessons['other'].completed).toBe(true);
+  });
+});
+
+describe('resetCourseProgress', () => {
+  it('clears all lesson progress while preserving courseName and optional lastLessonId', () => {
+    const reset = resetCourseProgress('Course', 'm1/a');
+    expect(reset.courseName).toBe('Course');
+    expect(reset.lastLessonId).toBe('m1/a');
+    expect(reset.lessons).toEqual({});
   });
 });
 
