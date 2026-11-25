@@ -4,6 +4,9 @@ import {
   loadSubtitle,
   dedupeSubtitles,
   getSubtitleLabel,
+  pickDefaultSubtitle,
+  readCaptionPreference,
+  saveCaptionPreference,
 } from '@/app/lib/subtitles';
 import type { SubtitleInfo } from '@/app/types';
 import { FakeFileHandle } from './helpers/fake-fs';
@@ -85,5 +88,24 @@ describe('getSubtitleLabel', () => {
 
   it('labels the Unknown sentinel as Default', () => {
     expect(getSubtitleLabel('Unknown')).toBe('Default');
+  });
+});
+
+describe('caption language preference', () => {
+  it('remembers the last chosen language even after toggling captions off and back on', () => {
+    localStorage.clear();
+    saveCaptionPreference('es');
+    expect(readCaptionPreference()).toEqual({ enabled: true, language: 'es' });
+
+    saveCaptionPreference(null);
+    expect(readCaptionPreference()).toEqual({ enabled: false, language: 'es' });
+  });
+
+  it('picks the preferred language, falling back to en or the sole track', () => {
+    const tracks = [{ language: 'en' }, { language: 'es' }];
+    expect(pickDefaultSubtitle(tracks, { enabled: true, language: 'es' })).toBe('es');
+    expect(pickDefaultSubtitle(tracks, { enabled: true, language: 'fr' })).toBe('en');
+    expect(pickDefaultSubtitle(tracks, { enabled: false, language: 'es' })).toBeNull();
+    expect(pickDefaultSubtitle([{ language: 'ja' }], { enabled: true, language: null })).toBe('ja');
   });
 });

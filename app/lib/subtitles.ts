@@ -83,3 +83,52 @@ export async function loadSubtitle(
   const blob = new Blob([text], { type: 'text/vtt' });
   return URL.createObjectURL(blob);
 }
+
+export const CC_ENABLED_KEY = 'foleyo_cc_enabled';
+export const CC_LANGUAGE_KEY = 'foleyo_cc_language';
+
+export interface CaptionPreference {
+  enabled: boolean;
+  language: string | null;
+}
+
+export function readCaptionPreference(): CaptionPreference {
+  try {
+    return {
+      enabled: localStorage.getItem(CC_ENABLED_KEY) !== 'false',
+      language: localStorage.getItem(CC_LANGUAGE_KEY),
+    };
+  } catch {
+    return { enabled: true, language: null };
+  }
+}
+
+/**
+ * Persist a caption selection change. `null` means captions were turned off;
+ * the last language is kept so turning them back on restores it.
+ */
+export function saveCaptionPreference(language: string | null) {
+  try {
+    localStorage.setItem(CC_ENABLED_KEY, String(language !== null));
+    if (language !== null) localStorage.setItem(CC_LANGUAGE_KEY, language);
+  } catch {
+    // storage unavailable — preference just won't persist
+  }
+}
+
+/**
+ * Choose which subtitle track (by language) should start enabled: the last
+ * language the user picked, else English, else the only track. Returns null
+ * when captions are off or nothing suitable exists.
+ */
+export function pickDefaultSubtitle(
+  tracks: { language: string }[],
+  pref: CaptionPreference
+): string | null {
+  if (!pref.enabled || tracks.length === 0) return null;
+  if (pref.language && tracks.some((t) => t.language === pref.language)) {
+    return pref.language;
+  }
+  if (tracks.some((t) => t.language === 'en')) return 'en';
+  return tracks.length === 1 ? tracks[0].language : null;
+}

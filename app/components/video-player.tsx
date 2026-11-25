@@ -27,6 +27,38 @@ import { useCourse, AUTO_ADVANCE_DELAY_MS } from "@/app/context/course-context";
 import { useLessonDurations } from "@/app/context/lesson-durations-context";
 import { getLessonProgress } from "@/app/lib/progress-store";
 import { useNotes, useCourseNotes } from "@/app/lib/use-notes";
+import {
+  addBookmark,
+  useCourseBookmarks,
+  type Bookmark,
+} from "@/app/lib/bookmarks";
+import {
+  useCourseSettings,
+  updateCourseSettings,
+  sanitizeSkipSeconds,
+} from "@/app/lib/course-settings";
+import {
+  GLOBAL_SPEED_KEY,
+  clampPlaybackRate,
+  playbackRateOptions,
+  readGlobalPlaybackRate,
+  stepPlaybackRate,
+} from "@/app/lib/playback-speed";
+import {
+  pickDefaultSubtitle,
+  readCaptionPreference,
+  saveCaptionPreference,
+} from "@/app/lib/subtitles";
+import { chaptersToCues } from "@/app/lib/chapters";
+import { formatTimestamp } from "@/app/lib/time";
+import {
+  BookmarksPanel,
+  type BookmarkFocusRequest,
+} from "@/app/components/bookmarks-panel";
+import {
+  PlaybackToolbar,
+  type LoopRange,
+} from "@/app/components/playback-toolbar";
 import { FOCUS_RING } from "@/app/components/focus-ring";
 import {
   CODEC_WARNING,
@@ -34,6 +66,8 @@ import {
   hasCodecRisk,
   type Lesson,
 } from "@/app/types";
+
+const EMPTY_LOOP: LoopRange = { a: null, b: null };
 
 export function VideoPlayer() {
   const {
@@ -46,6 +80,7 @@ export function VideoPlayer() {
     prevLesson,
     course,
     subtitleTracks,
+    chapters,
     requiresPermission,
     grantPermission,
     autoAdvance,
@@ -60,19 +95,61 @@ export function VideoPlayer() {
   const playerContainerRef = useRef<HTMLDivElement>(null);
   const hasRestoredRef = useRef<string | null>(null);
   const wasFullscreenRef = useRef(false);
+  const outroTriggeredRef = useRef(false);
+  const resumeAfterBookmarkRef = useRef(false);
   const [isNativeFullscreen, setIsNativeFullscreen] = useState(false);
   // The URL that last reported canplay. Comparing it to the current videoUrl
   // derives readiness without a setState-in-effect reset when lessons change.
   const [readyUrl, setReadyUrl] = useState<string | null>(null);
+  const [durationState, setDurationState] = useState<{
+    url: string | null;
+    duration: number;
+  }>({ url: null, duration: 0 });
+  const [loopState, setLoopState] = useState<{
+    url: string | null;
+    range: LoopRange;
+  }>({ url: null, range: EMPTY_LOOP });
+  const [activeBookmarkState, setActiveBookmarkState] = useState<{
+    url: string | null;
+    id: string | null;
+  }>({ url: null, id: null });
+  const [bookmarkFocus, setBookmarkFocus] =
+    useState<BookmarkFocusRequest | null>(null);
+
   const { note, updateNote, isSaved } = useNotes(
     course?.name,
     currentLesson?.id,
   );
   const courseNotes = useCourseNotes(course?.name);
+  const courseBookmarks = useCourseBookmarks(course?.name);
+  const courseSettings = useCourseSettings(course?.name);
 
   const isReady = videoUrl !== null && readyUrl === videoUrl;
+  const videoDuration =
+    videoUrl !== null && durationState.url === videoUrl
+      ? durationState.duration
+      : 0;
+  const loop: LoopRange =
+    videoUrl !== null && loopState.url === videoUrl
+      ? loopState.range
+      : EMPTY_LOOP;
+  const activeBookmarkId =
+    videoUrl !== null && activeBookmarkState.url === videoUrl
+      ? activeBookmarkState.id
+      : null;
 
-  const hasAnyNotes = Object.keys(courseNotes).length > 0 || note.trim() !== "";
+  const lessonBookmarks: Bookmark[] = useMemo(
+    () => (currentLesson ? (courseBookmarks[currentLesson.id] ?? []) : []),
+    [courseBookmarks, currentLesson],
+  );
+
+  const introSkip = courseSettings.introSkip ?? 0;
+  const outroSkip = courseSettings.outroSkip ?? 0;
+
+  const hasAnyNotes =
+    Object.keys(courseNotes).length > 0 ||
+    Object.keys(courseBookmarks).length > 0 ||
+    note.trim() !== "";
 
   const handleExportNotes = useCallback(() => {
     if (!course) return;
@@ -84,7 +161,8 @@ export function VideoPlayer() {
       delete allNotes[currentLesson.id];
     }
 
-    if (Object.keys(allNotes).length === 0) return;
+    const hasBookmarks = Object.keys(courseBookmarks).length > 0;
+    if (Object.keys(allNotes).length === 0 && !hasBookmarks) return;
 
     let markdown = `# ${course.name} — Notes\n\n`;
 
@@ -93,10 +171,23 @@ export function VideoPlayer() {
       let moduleMarkdown = `## ${module.title}\n\n`;
 
       module.lessons.forEach((lesson) => {
-        const lessonNote = allNotes[lesson.id];
-        if (lessonNote && lessonNote.trim() !== "") {
+        const lessonNote = allNotes[lesson.id]?.trim() ?? "";
+        const bookmarks = courseBookmarks[lesson.id] ?? [];
+        if (lessonNote !== "" || bookmarks.length > 0) {
           moduleHasNotes = true;
-          moduleMarkdown += `### ${lesson.title}\n${lessonNote.trim()}\n\n`;
+          moduleMarkdown += `### ${lesson.title}\n`;
+          if (bookmarks.length > 0) {
+            bookmarks.forEach((b) => {
+              const ts = `**${formatTimestamp(b.time)}**`;
+              moduleMarkdown += b.text.trim()
+                ? `- ${ts} — ${b.text.trim()}\n`
+                : `- ${ts}\n`;
+            });
+            moduleMarkdown += "\n";
+          }
+          if (lessonNote !== "") {
+            moduleMarkdown += `${lessonNote}\n\n`;
+          }
         }
       });
 
@@ -114,16 +205,13 @@ export function VideoPlayer() {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-  }, [course, courseNotes, currentLesson, note]);
+  }, [course, courseNotes, courseBookmarks, currentLesson, note]);
 
-  const [playbackRate, setPlaybackRate] = useState(() => {
-    if (typeof window !== "undefined") {
-      const savedSpeedStr = localStorage.getItem("foleyo_playback_speed");
-      const savedSpeed = savedSpeedStr ? parseFloat(savedSpeedStr) : 1;
-      return !isNaN(savedSpeed) ? savedSpeed : 1;
-    }
-    return 1;
-  });
+  // Per-course playback rate, falling back to the global saved speed
+  const [globalPlaybackRate, setGlobalPlaybackRate] = useState<number>(() =>
+    typeof window !== "undefined" ? readGlobalPlaybackRate() : 1,
+  );
+  const playbackRate = courseSettings.playbackRate ?? globalPlaybackRate;
 
   // Volume/mute persist across lessons. The MediaPlayer remounts while the next
   // video URL loads, so without this it would fall back to full volume.
@@ -145,31 +233,47 @@ export function VideoPlayer() {
     [],
   );
 
-  // Initialize once from localStorage (loaded via dynamic ssr:false, so window exists).
-  // Snapshot only — later changes are persisted by onTextTrackChange.
-  const [ccInitial] = useState<boolean>(
-    () => localStorage.getItem("foleyo_cc_enabled") !== "false",
+  // Pick the default subtitle track from the latest persisted preference
+  // whenever a lesson's subtitle tracks load.
+  const defaultSubtitleLang = useMemo(
+    () => pickDefaultSubtitle(subtitleTracks, readCaptionPreference()),
+    [subtitleTracks],
   );
 
-  // Restore position when lesson changes
+  // Build chapter cues for text/description chapter files once duration is known
+  const chapterCues = useMemo(() => {
+    if (chapters?.kind !== "list" || videoDuration <= 0) return [];
+    return chaptersToCues(chapters.chapters, videoDuration);
+  }, [chapters, videoDuration]);
+
+  // Restore position (or skip intro for unwatched lessons) when lesson changes
   useEffect(() => {
     if (!currentLesson || !isReady || !playerRef.current) return;
     if (hasRestoredRef.current === currentLesson.id) return;
 
     const lessonProgress = getLessonProgress(progress, currentLesson.id);
+    const dur = playerRef.current.duration;
+    const hasDuration = Number.isFinite(dur) && dur > 0;
+
     if (lessonProgress.lastPosition > 2) {
       playerRef.current.currentTime = lessonProgress.lastPosition;
+    } else if (introSkip > 0) {
+      const safeMax = hasDuration ? dur - outroSkip - 1 : Infinity;
+      if (introSkip < safeMax) {
+        playerRef.current.currentTime = introSkip;
+      }
     }
     hasRestoredRef.current = currentLesson.id;
-  }, [currentLesson, isReady, progress]);
+  }, [currentLesson, isReady, progress, introSkip, outroSkip]);
 
-  // Reset the restore flag when the video URL changes (refs only — no state to reset)
+  // Reset per-video refs when the video URL changes
   useEffect(() => {
     // Before resetting, check if we're currently in fullscreen
     if (document.fullscreenElement) {
       wasFullscreenRef.current = true;
     }
     hasRestoredRef.current = null;
+    outroTriggeredRef.current = false;
   }, [videoUrl]);
 
   // Track fullscreen state changes from the browser
@@ -214,6 +318,117 @@ export function VideoPlayer() {
     remote.toggleFullscreen();
   }, [windowFullscreen, exitWindowFullscreen, remote]);
 
+  // Vidstack passes the new rate as the first argument (detail)
+  const applyPlaybackRate = useCallback(
+    (rawRate: number, syncRemote: boolean) => {
+      const rate = clampPlaybackRate(rawRate);
+      if (course?.name) {
+        if (courseSettings.playbackRate !== rate) {
+          updateCourseSettings(course.name, { playbackRate: rate });
+        }
+      }
+      setGlobalPlaybackRate(rate);
+      try {
+        localStorage.setItem(GLOBAL_SPEED_KEY, rate.toString());
+      } catch {
+        // storage unavailable
+      }
+      if (syncRemote && remote) {
+        remote.changePlaybackRate(rate);
+      }
+    },
+    [course, courseSettings.playbackRate, remote],
+  );
+
+  const handleRateChange = useCallback(
+    (rate: number) => {
+      applyPlaybackRate(rate, false);
+    },
+    [applyPlaybackRate],
+  );
+
+  const handleToolbarRateChange = useCallback(
+    (rate: number) => {
+      applyPlaybackRate(rate, true);
+    },
+    [applyPlaybackRate],
+  );
+
+  const handleIntroSkipChange = useCallback(
+    (seconds: number) => {
+      if (!course?.name) return;
+      updateCourseSettings(course.name, {
+        introSkip: sanitizeSkipSeconds(seconds),
+      });
+    },
+    [course],
+  );
+
+  const handleOutroSkipChange = useCallback(
+    (seconds: number) => {
+      if (!course?.name) return;
+      updateCourseSettings(course.name, {
+        outroSkip: sanitizeSkipSeconds(seconds),
+      });
+    },
+    [course],
+  );
+
+  const handleLoopStep = useCallback(() => {
+    if (!videoUrl || !playerRef.current) return;
+    const now = playerRef.current.currentTime;
+    if (!Number.isFinite(now)) return;
+
+    if (loop.a === null) {
+      setLoopState({ url: videoUrl, range: { a: now, b: null } });
+    } else if (loop.b === null) {
+      if (now > loop.a + 0.5) {
+        setLoopState({ url: videoUrl, range: { a: loop.a, b: now } });
+        playerRef.current.currentTime = loop.a;
+      } else if (now < loop.a - 0.5) {
+        setLoopState({ url: videoUrl, range: { a: now, b: loop.a } });
+        playerRef.current.currentTime = now;
+      } else {
+        setLoopState({ url: videoUrl, range: { a: now, b: null } });
+      }
+    } else {
+      setLoopState({ url: videoUrl, range: { a: null, b: null } });
+    }
+  }, [videoUrl, loop]);
+
+  const handleLoopClear = useCallback(() => {
+    setLoopState({ url: videoUrl, range: { a: null, b: null } });
+  }, [videoUrl]);
+
+  const handleAddBookmark = useCallback(() => {
+    if (!course?.name || !currentLesson) return;
+    const player = playerRef.current;
+    const now = player ? player.currentTime : 0;
+    if (player && !player.paused) {
+      resumeAfterBookmarkRef.current = true;
+      player.pause();
+    } else {
+      resumeAfterBookmarkRef.current = false;
+    }
+    const bookmark = addBookmark(course.name, currentLesson.id, now);
+    setBookmarkFocus({ id: bookmark.id, nonce: Date.now() });
+  }, [course, currentLesson]);
+
+  const handleSeekTo = useCallback((time: number) => {
+    const player = playerRef.current;
+    if (!player) return;
+    player.currentTime = time;
+    playerContainerRef.current?.focus();
+  }, []);
+
+  const handleBookmarkDoneEditing = useCallback(() => {
+    playerContainerRef.current?.focus();
+    if (resumeAfterBookmarkRef.current) {
+      resumeAfterBookmarkRef.current = false;
+      playerRef.current?.play().catch(() => {});
+    }
+  }, []);
+
   const keyShortcuts = useMemo<MediaKeyShortcuts>(
     () => ({
       toggleFullscreen: {
@@ -230,8 +445,27 @@ export function VideoPlayer() {
           handleToggleNativeFullscreen();
         },
       },
+      speedUp: {
+        keys: ">",
+        onKeyDown: ({ event }) => {
+          event.preventDefault();
+          applyPlaybackRate(stepPlaybackRate(playbackRate, 1), true);
+        },
+      },
+      slowDown: {
+        keys: "<",
+        onKeyDown: ({ event }) => {
+          event.preventDefault();
+          applyPlaybackRate(stepPlaybackRate(playbackRate, -1), true);
+        },
+      },
     }),
-    [handleToggleWindowFullscreen, handleToggleNativeFullscreen],
+    [
+      handleToggleWindowFullscreen,
+      handleToggleNativeFullscreen,
+      applyPlaybackRate,
+      playbackRate,
+    ],
   );
 
   const layoutSlots = useMemo(
@@ -259,9 +493,62 @@ export function VideoPlayer() {
 
   const handleTimeUpdate = useCallback(
     (detail: { currentTime: number }) => {
-      updatePosition(detail.currentTime);
+      const now = detail.currentTime;
+      updatePosition(now);
+
+      // A–B loop enforcement
+      if (
+        loop.a !== null &&
+        loop.b !== null &&
+        playerRef.current &&
+        now >= loop.b
+      ) {
+        playerRef.current.currentTime = loop.a;
+        return;
+      }
+
+      // Outro skip (disabled while looping a section)
+      if (outroSkip > 0 && (loop.a === null || loop.b === null)) {
+        const dur = playerRef.current?.duration ?? 0;
+        if (Number.isFinite(dur) && dur > introSkip + outroSkip + 2) {
+          const cutoff = dur - outroSkip;
+          if (now >= cutoff && !outroTriggeredRef.current) {
+            outroTriggeredRef.current = true;
+            playerRef.current?.pause();
+            onVideoEnded();
+            return;
+          } else if (now < cutoff - 2 && outroTriggeredRef.current) {
+            outroTriggeredRef.current = false;
+          }
+        }
+      }
+
+      // Highlight the most recent bookmark at or before currentTime
+      if (lessonBookmarks.length > 0) {
+        let currentId: string | null = null;
+        for (let i = lessonBookmarks.length - 1; i >= 0; i--) {
+          if (lessonBookmarks[i].time <= now + 0.5) {
+            currentId = lessonBookmarks[i].id;
+            break;
+          }
+        }
+        if (currentId !== activeBookmarkId) {
+          setActiveBookmarkState({ url: videoUrl, id: currentId });
+        }
+      } else if (activeBookmarkId !== null) {
+        setActiveBookmarkState({ url: videoUrl, id: null });
+      }
     },
-    [updatePosition],
+    [
+      updatePosition,
+      loop,
+      outroSkip,
+      introSkip,
+      onVideoEnded,
+      lessonBookmarks,
+      activeBookmarkId,
+      videoUrl,
+    ],
   );
 
   const handleCanPlay = useCallback(() => {
@@ -276,11 +563,12 @@ export function VideoPlayer() {
       if (player.volume !== volume) player.volume = volume;
       if (player.muted !== muted) player.muted = muted;
     }
-    // Report video duration to the context for watch time stats
+    // Report video duration to the context for watch time stats and chapter cues
     if (currentLesson && playerRef.current) {
       const dur = playerRef.current.duration;
       if (dur && isFinite(dur) && dur > 0) {
         setLessonDuration(currentLesson.id, dur);
+        setDurationState({ url: videoUrl, duration: dur });
       }
     }
     // Re-enter fullscreen if we were in fullscreen before the lesson changed
@@ -292,15 +580,23 @@ export function VideoPlayer() {
     }
   }, [remote, playbackRate, volume, muted, currentLesson, setLessonDuration, videoUrl]);
 
-  // Vidstack passes the new rate as the first argument (detail)
-  const handleRateChange = useCallback((rate: number) => {
-    setPlaybackRate(rate);
-    localStorage.setItem("foleyo_playback_speed", rate.toString());
-  }, []);
+  const handleDurationChange = useCallback(
+    (dur: number) => {
+      if (dur && Number.isFinite(dur) && dur > 0) {
+        setDurationState({ url: videoUrl, duration: dur });
+      }
+    },
+    [videoUrl],
+  );
 
   const handleEnded = useCallback(() => {
+    if (loop.a !== null && loop.b !== null && playerRef.current) {
+      playerRef.current.currentTime = loop.a;
+      playerRef.current.play().catch(() => {});
+      return;
+    }
     onVideoEnded();
-  }, [onVideoEnded]);
+  }, [loop, onVideoEnded]);
 
   // Determine if prev/next are available
   const allLessons = course?.modules.flatMap((m) => m.lessons) || [];
@@ -309,6 +605,56 @@ export function VideoPlayer() {
     : -1;
   const hasPrev = currentIdx > 0;
   const hasNext = currentIdx < allLessons.length - 1;
+
+  // Global keyboard shortcuts for study & lesson navigation (ignored in inputs)
+  useEffect(() => {
+    const isEditable = (target: EventTarget | null) => {
+      if (!(target instanceof HTMLElement)) return false;
+      if (target.isContentEditable) return true;
+      const tag = target.tagName;
+      return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
+    };
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (isEditable(e.target) || isEditable(document.activeElement)) return;
+
+      if (e.shiftKey && e.key === "N") {
+        if (hasNext) {
+          e.preventDefault();
+          nextLesson();
+        }
+      } else if (e.shiftKey && e.key === "P") {
+        if (hasPrev) {
+          e.preventDefault();
+          prevLesson();
+        }
+      } else if (!e.shiftKey && e.key.toLowerCase() === "n") {
+        e.preventDefault();
+        handleAddBookmark();
+      } else if (e.shiftKey && e.key === "A") {
+        if (loop.a !== null) {
+          e.preventDefault();
+          handleLoopClear();
+        }
+      } else if (!e.shiftKey && e.key.toLowerCase() === "a") {
+        e.preventDefault();
+        handleLoopStep();
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [
+    hasNext,
+    hasPrev,
+    nextLesson,
+    prevLesson,
+    handleAddBookmark,
+    handleLoopStep,
+    handleLoopClear,
+    loop.a,
+  ]);
 
   // Pending auto-advance: the countdown targets a lesson that isn't current yet
   const pendingNext =
@@ -415,12 +761,13 @@ export function VideoPlayer() {
               src={videoMimeType ? { src: videoUrl, type: videoMimeType } : videoUrl}
               crossOrigin=""
               onTimeUpdate={handleTimeUpdate}
+              onDurationChange={handleDurationChange}
               onCanPlay={handleCanPlay}
               onEnded={handleEnded}
               onRateChange={handleRateChange}
-              onTextTrackChange={(track) => {
-                const isEnabled = track != null;
-                localStorage.setItem("foleyo_cc_enabled", isEnabled.toString());
+              onTextTrackChange={(track, nativeEvent) => {
+                if (subtitleTracks.length === 0 || !nativeEvent.trigger) return;
+                saveCaptionPreference(track ? track.language : null);
               }}
               onVolumeChange={handleVolumeChange}
               playbackRate={playbackRate}
@@ -440,15 +787,31 @@ export function VideoPlayer() {
                     kind="subtitles"
                     label={track.label}
                     lang={track.language}
-                    default={
-                      ccInitial &&
-                      (track.language === "en" || subtitleTracks.length === 1)
-                    }
+                    default={defaultSubtitleLang === track.language}
                   />
                 ))}
+                {chapters?.kind === "vtt" && (
+                  <Track
+                    key={`chapters-${chapters.src}`}
+                    src={chapters.src}
+                    kind="chapters"
+                    label="Chapters"
+                    default
+                  />
+                )}
+                {chapters?.kind === "list" && chapterCues.length > 0 && (
+                  <Track
+                    key={`chapters-${currentLesson.id}-${videoDuration}`}
+                    content={{ cues: chapterCues }}
+                    kind="chapters"
+                    label="Chapters"
+                    default
+                  />
+                )}
               </MediaProvider>
               <DefaultVideoLayout
                 icons={defaultLayoutIcons}
+                playbackRates={playbackRateOptions(playbackRate)}
                 slots={layoutSlots}
               />
             </MediaPlayer>
@@ -471,6 +834,7 @@ export function VideoPlayer() {
             onClick={prevLesson}
             disabled={!hasPrev}
             aria-label="Previous lesson"
+            title="Previous lesson (Shift+P)"
             className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${FOCUS_RING} ${
               hasPrev
                 ? "bg-surface hover:bg-surface-hover border border-border text-foreground hover:border-foreground-subtle"
@@ -503,6 +867,7 @@ export function VideoPlayer() {
             onClick={nextLesson}
             disabled={!hasNext}
             aria-label="Next lesson"
+            title="Next lesson (Shift+N)"
             className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${FOCUS_RING} ${
               hasNext
                 ? "bg-accent hover:bg-accent-hover text-white shadow-lg shadow-accent/20"
@@ -545,6 +910,36 @@ export function VideoPlayer() {
             </svg>
             <span>{CODEC_WARNING}</span>
           </div>
+        )}
+
+        {/* Per-course speed, intro/outro skip, A–B loop, and shortcuts */}
+        {course && (
+          <PlaybackToolbar
+            courseName={course.name}
+            playbackRate={playbackRate}
+            onRateChange={handleToolbarRateChange}
+            introSkip={introSkip}
+            outroSkip={outroSkip}
+            onIntroSkipChange={handleIntroSkipChange}
+            onOutroSkipChange={handleOutroSkipChange}
+            loop={loop}
+            onLoopStep={handleLoopStep}
+            onLoopClear={handleLoopClear}
+          />
+        )}
+
+        {/* Timestamped Bookmarks */}
+        {course && (
+          <BookmarksPanel
+            courseId={course.name}
+            lessonId={currentLesson.id}
+            bookmarks={lessonBookmarks}
+            activeId={activeBookmarkId}
+            focusRequest={bookmarkFocus}
+            onSeek={handleSeekTo}
+            onAdd={handleAddBookmark}
+            onDoneEditing={handleBookmarkDoneEditing}
+          />
         )}
 
         {/* Inline Notes Section */}

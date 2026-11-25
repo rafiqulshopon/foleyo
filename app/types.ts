@@ -8,6 +8,15 @@ export interface SubtitleInfo {
   fileHandle: FileSystemFileHandle;
 }
 
+/**
+ * A per-lesson chapter source: a WebVTT chapters file (`lesson.chapters.vtt`)
+ * or a text/description file with timestamps (`lesson.txt`, `lesson.description`).
+ */
+export interface ChapterSource {
+  format: 'vtt' | 'text';
+  fileHandle: FileSystemFileHandle;
+}
+
 export interface Lesson {
   id: string;
   title: string;
@@ -17,6 +26,7 @@ export interface Lesson {
   index: number; // global index across all modules
   localIndex: number; // index within the module
   subtitles?: SubtitleInfo[];
+  chapters?: ChapterSource;
 }
 
 export interface Module {
@@ -60,6 +70,9 @@ export const VIDEO_EXTENSIONS = [
 ] as const;
 
 export const SUBTITLE_EXTENSIONS = ['.srt', '.vtt'] as const;
+
+/** Text files that may carry chapter timestamps for the matching video. */
+export const CHAPTER_TEXT_EXTENSIONS = ['.chapters.txt', '.txt', '.description', '.md'] as const;
 
 const VIDEO_MIME_TYPES: Record<string, VideoMimeType> = {
   '.mp4': 'video/mp4',

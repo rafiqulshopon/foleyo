@@ -4,7 +4,9 @@ import {
   Lesson,
   VIDEO_EXTENSIONS,
   SUBTITLE_EXTENSIONS,
+  CHAPTER_TEXT_EXTENSIONS,
   SubtitleInfo,
+  ChapterSource,
 } from '@/app/types';
 import { dedupeSubtitles } from '@/app/lib/subtitles';
 
@@ -64,6 +66,34 @@ interface ScannedFolder {
   handle: FileSystemDirectoryHandle;
   videoFiles: { name: string; handle: FileSystemFileHandle }[];
   subtitleFiles: { name: string; handle: FileSystemFileHandle }[];
+  textFiles: { name: string; handle: FileSystemFileHandle }[];
+}
+
+function isChapterTextFile(filename: string): boolean {
+  const lower = filename.toLowerCase();
+  return CHAPTER_TEXT_EXTENSIONS.some((ext) => lower.endsWith(ext));
+}
+
+/**
+ * Find a chapter source for a video: `<base>.chapters.vtt` wins, then the
+ * first of `<base>.chapters.txt`, `<base>.txt`, `<base>.description`, `<base>.md`.
+ */
+function findChapterSource(
+  baseName: string,
+  subtitleFiles: { name: string; handle: FileSystemFileHandle }[],
+  textFiles: { name: string; handle: FileSystemFileHandle }[]
+): ChapterSource | undefined {
+  const lowerBase = baseName.toLowerCase();
+  const vtt = subtitleFiles.find(
+    (f) => f.name.toLowerCase() === `${lowerBase}.chapters.vtt`
+  );
+  if (vtt) return { format: 'vtt', fileHandle: vtt.handle };
+
+  for (const ext of CHAPTER_TEXT_EXTENSIONS) {
+    const match = textFiles.find((f) => f.name.toLowerCase() === lowerBase + ext);
+    if (match) return { format: 'text', fileHandle: match.handle };
+  }
+  return undefined;
 }
 
 async function scanDirectory(
@@ -73,6 +103,7 @@ async function scanDirectory(
   const folders: ScannedFolder[] = [];
   const videoFiles: { name: string; handle: FileSystemFileHandle }[] = [];
   const subtitleFiles: { name: string; handle: FileSystemFileHandle }[] = [];
+  const textFiles: { name: string; handle: FileSystemFileHandle }[] = [];
   const subDirs: { name: string; handle: FileSystemDirectoryHandle }[] = [];
 
   for await (const entry of dirHandle.values()) {
@@ -82,6 +113,8 @@ async function scanDirectory(
         videoFiles.push({ name: entry.name, handle: entry });
       } else if (SUBTITLE_EXTENSIONS.some((ext) => lower.endsWith(ext))) {
         subtitleFiles.push({ name: entry.name, handle: entry });
+      } else if (isChapterTextFile(entry.name)) {
+        textFiles.push({ name: entry.name, handle: entry });
       }
     } else if (entry.kind === 'directory') {
       // Ignore hidden folders like .git or .DS_Store
@@ -97,6 +130,7 @@ async function scanDirectory(
       handle: dirHandle,
       videoFiles,
       subtitleFiles,
+      textFiles,
     });
   }
 
@@ -137,7 +171,7 @@ export async function parseCourseDirectory(
 
   for (let i = 0; i < allFolders.length; i++) {
     const folder = allFolders[i];
-    const { path, videoFiles, subtitleFiles } = folder;
+    const { path, videoFiles, subtitleFiles, textFiles } = folder;
     const isRoot = path.length === 0;
     
     // Create module ID and Title
@@ -166,10 +200,13 @@ export async function parseCourseDirectory(
             language = parts[0];
           }
           return { language, format, fileHandle: sub.handle };
-        });
+        })
+        // `<base>.chapters.vtt` is a chapter track, not a subtitle language
+        .filter((sub) => sub.language.toLowerCase() !== 'chapters');
 
       // Deduplicate by language, preferring VTT over SRT
       const subtitles: SubtitleInfo[] = dedupeSubtitles(rawSubtitles);
+      const chapters = findChapterSource(baseName, subtitleFiles, textFiles);
 
       lessons.push({
         id: `${moduleId}/${video.name}`,
@@ -180,6 +217,7 @@ export async function parseCourseDirectory(
         index: globalIndex++,
         localIndex: j,
         subtitles: subtitles.length > 0 ? subtitles : undefined,
+        ...(chapters ? { chapters } : {}),
       });
     }
 

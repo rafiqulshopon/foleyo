@@ -29,12 +29,16 @@ import {
   checkHandlePermission,
   type RecentCourse,
 } from '@/app/lib/recent-courses-store';
-import { useVideoLoader, type SubtitleTrack } from './use-video-loader';
+import {
+  useVideoLoader,
+  type SubtitleTrack,
+  type LessonChapters,
+} from './use-video-loader';
 import { useDurationScanner } from './use-duration-scanner';
 import { useCourseHistory } from './use-course-history';
 import { LessonDurationsProvider } from './lesson-durations-context';
 
-export type { SubtitleTrack };
+export type { SubtitleTrack, LessonChapters };
 
 /** Delay before autoplay advances to the next lesson after a video ends. */
 export const AUTO_ADVANCE_DELAY_MS = 5000;
@@ -51,6 +55,7 @@ interface CourseContextType {
   currentLesson: Lesson | null;
   videoUrl: string | null;
   subtitleTracks: SubtitleTrack[];
+  chapters: LessonChapters | null;
   progress: CourseProgress;
   autoplay: boolean;
   autoAdvance: AutoAdvance | null;
@@ -106,7 +111,7 @@ export function CourseProvider({ children }: { children: ReactNode }) {
   const [invalidLink, setInvalidLink] = useState(false);
 
   // Video/subtitle blob-URL lifecycle, background duration scan
-  const { videoUrl, subtitleTracks, loadVideo, showVideo, resetVideo } =
+  const { videoUrl, subtitleTracks, chapters, loadVideo, showVideo, resetVideo } =
     useVideoLoader();
   const { lessonDurations, setLessonDuration } = useDurationScanner(course);
 
@@ -638,6 +643,7 @@ export function CourseProvider({ children }: { children: ReactNode }) {
       currentLesson,
       videoUrl,
       subtitleTracks,
+      chapters,
       progress,
       autoplay,
       autoAdvance,
@@ -670,6 +676,7 @@ export function CourseProvider({ children }: { children: ReactNode }) {
       currentLesson,
       videoUrl,
       subtitleTracks,
+      chapters,
       progress,
       autoplay,
       autoAdvance,

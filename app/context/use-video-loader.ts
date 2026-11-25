@@ -2,12 +2,31 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { dedupeSubtitles, getSubtitleLabel, loadSubtitle } from '@/app/lib/subtitles';
-import type { Lesson } from '@/app/types';
+import { parseChapterText, type Chapter } from '@/app/lib/chapters';
+import type { ChapterSource, Lesson } from '@/app/types';
 
 export interface SubtitleTrack {
   src: string;
   language: string;
   label: string;
+}
+
+/**
+ * Chapters for the active lesson: a WebVTT chapters file handed to the player
+ * as-is, or start times parsed from a text/description file (cues are built
+ * once the video duration is known).
+ */
+export type LessonChapters =
+  | { kind: 'vtt'; src: string }
+  | { kind: 'list'; chapters: Chapter[] };
+
+async function loadChapters(source: ChapterSource): Promise<LessonChapters | null> {
+  const file = await source.fileHandle.getFile();
+  if (source.format === 'vtt') {
+    return { kind: 'vtt', src: URL.createObjectURL(file) };
+  }
+  const chapters = parseChapterText(await file.text());
+  return chapters.length > 0 ? { kind: 'list', chapters } : null;
 }
 
 /**
@@ -18,6 +37,7 @@ export interface SubtitleTrack {
 export function useVideoLoader() {
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [subtitleTracks, setSubtitleTracks] = useState<SubtitleTrack[]>([]);
+  const [chapters, setChapters] = useState<LessonChapters | null>(null);
   const currentUrlRef = useRef<string | null>(null);
 
   const revokeUrl = useCallback(() => {
@@ -28,6 +48,10 @@ export function useVideoLoader() {
     setSubtitleTracks((prev) => {
       prev.forEach((track) => URL.revokeObjectURL(track.src));
       return [];
+    });
+    setChapters((prev) => {
+      if (prev?.kind === 'vtt') URL.revokeObjectURL(prev.src);
+      return null;
     });
   }, []);
 
@@ -69,6 +93,14 @@ export function useVideoLoader() {
         setSubtitleTracks([]);
       }
 
+      if (lesson.chapters) {
+        try {
+          setChapters(await loadChapters(lesson.chapters));
+        } catch (e) {
+          console.error('Failed to load chapters', e);
+        }
+      }
+
       return url;
     },
     [revokeUrl]
@@ -83,6 +115,7 @@ export function useVideoLoader() {
   return {
     videoUrl,
     subtitleTracks,
+    chapters,
     loadVideo,
     showVideo: setVideoUrl,
     resetVideo,

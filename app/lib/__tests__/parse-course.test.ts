@@ -179,4 +179,32 @@ describe('parseCourseDirectory', () => {
     const course = await parseCourseDirectory(root);
     expect(course.totalLessons).toBe(2);
   });
+
+  it('attaches .chapters.vtt as chapters (not a subtitle) and prefers it over .txt', async () => {
+    const root = new FakeDirHandle('Course');
+    root.addFile('01_Intro.mp4');
+    root.addFile('01_Intro.en.vtt');
+    root.addFile('01_Intro.chapters.vtt');
+    root.addFile('01_Intro.txt');
+
+    const course = await parseCourseDirectory(root);
+    const lesson = course.modules[0].lessons[0];
+    expect(lesson.chapters?.format).toBe('vtt');
+    expect(lesson.chapters?.fileHandle.name).toBe('01_Intro.chapters.vtt');
+    expect(lesson.subtitles?.map((s) => s.language)).toEqual(['en']);
+  });
+
+  it('falls back to .txt / .description chapter files when no .chapters.vtt exists', async () => {
+    const root = new FakeDirHandle('Course');
+    root.addFile('01_Intro.mp4');
+    root.addFile('01_Intro.description');
+    root.addFile('02_Next.mp4');
+    root.addFile('02_Next.txt');
+
+    const course = await parseCourseDirectory(root);
+    expect(course.modules[0].lessons[0].chapters?.format).toBe('text');
+    expect(course.modules[0].lessons[0].chapters?.fileHandle.name).toBe('01_Intro.description');
+    expect(course.modules[0].lessons[1].chapters?.format).toBe('text');
+    expect(course.modules[0].lessons[1].chapters?.fileHandle.name).toBe('02_Next.txt');
+  });
 });

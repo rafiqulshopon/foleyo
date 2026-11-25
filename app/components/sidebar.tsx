@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useCourse } from '@/app/context/course-context';
 import { getCompletionStats, getLessonProgress } from '@/app/lib/progress-store';
 import { useCourseNotes } from '@/app/lib/use-notes';
+import { useCourseBookmarks, type CourseBookmarks } from '@/app/lib/bookmarks';
 import { FOCUS_RING } from '@/app/components/focus-ring';
 import { hasCodecRisk, type Lesson, type Module } from '@/app/types';
 
@@ -12,12 +13,14 @@ function ModuleItem({
   lessons,
   forceExpanded = false,
   notes,
+  bookmarks,
 }: {
   module: Module;
   /** Lessons to render — a filtered subset while searching. */
   lessons: Lesson[];
   forceExpanded?: boolean;
   notes: Record<string, string>;
+  bookmarks: CourseBookmarks;
 }) {
   const { currentLesson, selectLesson, progress, markComplete } = useCourse();
   const [expanded, setExpanded] = useState(true);
@@ -207,9 +210,10 @@ function ModuleItem({
                   {lesson.title}
                 </span>
 
-                {/* Notes indicator */}
-                {notes[lesson.id] && notes[lesson.id].trim() !== '' && (
-                  <span title="Has notes" className="shrink-0 flex items-center">
+                {/* Notes / bookmarks indicator */}
+                {((notes[lesson.id] && notes[lesson.id].trim() !== '') ||
+                  (bookmarks[lesson.id] && bookmarks[lesson.id].length > 0)) && (
+                  <span title="Has notes or bookmarks" className="shrink-0 flex items-center">
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-accent/80">
                       <path d="M12 20h9" />
                       <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
@@ -248,6 +252,7 @@ function ModuleItem({
 export function Sidebar() {
   const { course, sidebarOpen, toggleSidebar, refreshCourse, isLoading } = useCourse();
   const notes = useCourseNotes(course?.name);
+  const bookmarks = useCourseBookmarks(course?.name);
   const [query, setQuery] = useState('');
 
   if (!course) return null;
@@ -359,6 +364,7 @@ export function Sidebar() {
                   lessons={lessons}
                   forceExpanded={filtering}
                   notes={notes}
+                  bookmarks={bookmarks}
                 />
               ))
             )}
