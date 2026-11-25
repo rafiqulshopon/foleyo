@@ -1,7 +1,12 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { dedupeSubtitles, getSubtitleLabel, loadSubtitle } from '@/app/lib/subtitles';
+import {
+  dedupeSubtitles,
+  getSubtitleLabel,
+  loadSubtitleWithCues,
+  type SubtitleCue,
+} from '@/app/lib/subtitles';
 import { parseChapterText, type Chapter } from '@/app/lib/chapters';
 import type { ChapterSource, Lesson } from '@/app/types';
 
@@ -9,6 +14,7 @@ export interface SubtitleTrack {
   src: string;
   language: string;
   label: string;
+  cues: SubtitleCue[];
 }
 
 /**
@@ -76,11 +82,15 @@ export function useVideoLoader() {
 
           const tracks = await Promise.all(
             uniqueSubtitles.map(async (sub) => {
-              const src = await loadSubtitle(sub.fileHandle, sub.format);
+              const { src, cues } = await loadSubtitleWithCues(
+                sub.fileHandle,
+                sub.format
+              );
               return {
                 src,
                 language: sub.language,
                 label: getSubtitleLabel(sub.language),
+                cues,
               };
             })
           );

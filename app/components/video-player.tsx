@@ -25,7 +25,11 @@ import "@vidstack/react/player/styles/default/theme.css";
 import "@vidstack/react/player/styles/default/layouts/video.css";
 import { useCourse, AUTO_ADVANCE_DELAY_MS } from "@/app/context/course-context";
 import { useLessonDurations } from "@/app/context/lesson-durations-context";
-import { getLessonProgress } from "@/app/lib/progress-store";
+import {
+  computeModuleWatchTimeStats,
+  getLessonProgress,
+} from "@/app/lib/progress-store";
+import { recordWatchSeconds } from "@/app/lib/watch-history";
 import {
   getDisplayTitle,
   getVisibleLessons,
@@ -55,7 +59,7 @@ import {
   saveCaptionPreference,
 } from "@/app/lib/subtitles";
 import { chaptersToCues } from "@/app/lib/chapters";
-import { formatTimestamp } from "@/app/lib/time";
+import { formatDuration, formatTimestamp } from "@/app/lib/time";
 import {
   BookmarksPanel,
   type BookmarkFocusRequest,
@@ -64,6 +68,7 @@ import {
   PlaybackToolbar,
   type LoopRange,
 } from "@/app/components/playback-toolbar";
+import { TranscriptPanel } from "@/app/components/transcript-panel";
 import { FOCUS_RING } from "@/app/components/focus-ring";
 import {
   CODEC_WARNING,
@@ -84,6 +89,7 @@ export function VideoPlayer() {
     onVideoEnded,
     nextLesson,
     prevLesson,
+    selectLesson,
     course,
     subtitleTracks,
     chapters,
@@ -91,11 +97,15 @@ export function VideoPlayer() {
     grantPermission,
     autoAdvance,
     cancelAutoAdvance,
+    pendingSeek,
+    clearPendingSeek,
+    transcriptOpen,
+    toggleTranscript,
     windowFullscreen,
     toggleWindowFullscreen,
     exitWindowFullscreen,
   } = useCourse();
-  const { setLessonDuration } = useLessonDurations();
+  const { lessonDurations, setLessonDuration } = useLessonDurations();
 
   const playerRef = useRef<MediaPlayerInstance>(null);
   const playerContainerRef = useRef<HTMLDivElement>(null);
@@ -103,6 +113,9 @@ export function VideoPlayer() {
   const wasFullscreenRef = useRef(false);
   const outroTriggeredRef = useRef(false);
   const resumeAfterBookmarkRef = useRef(false);
+  const lastWatchTickRef = useRef<{ url: string; time: number } | null>(null);
+  const accumulatedWatchRef = useRef(0);
+  const [currentTime, setCurrentTime] = useState(0);
   const [isNativeFullscreen, setIsNativeFullscreen] = useState(false);
   // The URL that last reported canplay. Comparing it to the current videoUrl
   // derives readiness without a setState-in-effect reset when lessons change.
@@ -253,9 +266,21 @@ export function VideoPlayer() {
     return chaptersToCues(chapters.chapters, videoDuration);
   }, [chapters, videoDuration]);
 
+  // Apply an explicit one-shot seek request (e.g. from subtitle search or ⌘K)
+  useEffect(() => {
+    if (!pendingSeek || !currentLesson || !isReady || !playerRef.current) return;
+    if (pendingSeek.lessonId !== currentLesson.id) return;
+
+    playerRef.current.currentTime = pendingSeek.time;
+    hasRestoredRef.current = currentLesson.id;
+    clearPendingSeek();
+    playerRef.current.play().catch(() => {});
+  }, [pendingSeek, currentLesson, isReady, clearPendingSeek]);
+
   // Restore position (or skip intro for unwatched lessons) when lesson changes
   useEffect(() => {
     if (!currentLesson || !isReady || !playerRef.current) return;
+    if (pendingSeek && pendingSeek.lessonId === currentLesson.id) return;
     if (hasRestoredRef.current === currentLesson.id) return;
 
     const lessonProgress = getLessonProgress(progress, currentLesson.id);
@@ -271,17 +296,32 @@ export function VideoPlayer() {
       }
     }
     hasRestoredRef.current = currentLesson.id;
-  }, [currentLesson, isReady, progress, introSkip, outroSkip]);
+  }, [currentLesson, isReady, progress, introSkip, outroSkip, pendingSeek]);
 
-  // Reset per-video refs when the video URL changes
+  // Flush any accumulated watch time and reset per-video refs when videoUrl changes
   useEffect(() => {
     // Before resetting, check if we're currently in fullscreen
     if (document.fullscreenElement) {
       wasFullscreenRef.current = true;
     }
+    if (accumulatedWatchRef.current >= 1) {
+      recordWatchSeconds(accumulatedWatchRef.current);
+      accumulatedWatchRef.current = 0;
+    }
+    lastWatchTickRef.current = null;
     hasRestoredRef.current = null;
     outroTriggeredRef.current = false;
   }, [videoUrl]);
+
+  // Flush remaining watch time on unmount
+  useEffect(() => {
+    return () => {
+      if (accumulatedWatchRef.current >= 1) {
+        recordWatchSeconds(accumulatedWatchRef.current);
+        accumulatedWatchRef.current = 0;
+      }
+    };
+  }, []);
 
   // Track fullscreen state changes from the browser
   useEffect(() => {
@@ -503,6 +543,29 @@ export function VideoPlayer() {
       const now = detail.currentTime;
       updatePosition(now);
 
+      // Update synced transcript time (quantized to 0.25s to keep renders light)
+      setCurrentTime((prev) => (Math.abs(prev - now) >= 0.25 ? now : prev));
+
+      // Accumulate real watched seconds for daily streak & watch history
+      if (videoUrl && playerRef.current && !playerRef.current.paused) {
+        const last = lastWatchTickRef.current;
+        if (last && last.url === videoUrl) {
+          const mediaDelta = now - last.time;
+          // Ignore seeks, pauses, or jumps (> 5s media time between ticks)
+          if (mediaDelta > 0 && mediaDelta <= 5) {
+            const wallDelta = mediaDelta / Math.max(0.25, playbackRate);
+            accumulatedWatchRef.current += wallDelta;
+            if (accumulatedWatchRef.current >= 5) {
+              recordWatchSeconds(accumulatedWatchRef.current);
+              accumulatedWatchRef.current = 0;
+            }
+          }
+        }
+        lastWatchTickRef.current = { url: videoUrl, time: now };
+      } else if (videoUrl) {
+        lastWatchTickRef.current = { url: videoUrl, time: now };
+      }
+
       // A–B loop enforcement
       if (
         loop.a !== null &&
@@ -548,6 +611,7 @@ export function VideoPlayer() {
     },
     [
       updatePosition,
+      playbackRate,
       loop,
       outroSkip,
       introSkip,
@@ -650,6 +714,9 @@ export function VideoPlayer() {
       } else if (!e.shiftKey && e.key.toLowerCase() === "a") {
         e.preventDefault();
         handleLoopStep();
+      } else if (!e.shiftKey && e.key.toLowerCase() === "t") {
+        e.preventDefault();
+        toggleTranscript();
       }
     };
 
@@ -663,6 +730,7 @@ export function VideoPlayer() {
     handleAddBookmark,
     handleLoopStep,
     handleLoopClear,
+    toggleTranscript,
     loop.a,
   ]);
 
@@ -685,6 +753,23 @@ export function VideoPlayer() {
   // MIME hint when vidstack knows the container; a plain src otherwise —
   // the video provider still plays MKV/MOV (the browser sniffs blob content).
   const videoMimeType = getVideoMimeType(currentLesson.fileName);
+  const currentModule = course?.modules.find(
+    (m) => m.id === currentLesson.moduleId,
+  );
+  const moduleWatchStats = computeModuleWatchTimeStats(
+    currentModule,
+    progress,
+    lessonDurations,
+    lessonOverrides.hidden,
+  );
+  const hasAnyCourseSubtitles =
+    subtitleTracks.length > 0 ||
+    Boolean(
+      course?.modules.some((m) =>
+        m.lessons.some((l) => l.subtitles && l.subtitles.length > 0),
+      ),
+    );
+  const showTranscriptPanel = transcriptOpen && !windowFullscreen;
 
   return (
     <div
@@ -693,55 +778,102 @@ export function VideoPlayer() {
       }`}
     >
       <div
-        className={`w-full max-w-240 px-4 py-6 ${
-          windowFullscreen ? "" : "animate-fade-in"
-        }`}
+        className={`w-full px-4 py-6 ${
+          showTranscriptPanel ? "max-w-360" : "max-w-240"
+        } ${windowFullscreen ? "" : "animate-fade-in"}`}
       >
+        <div
+          className={
+            showTranscriptPanel
+              ? "flex flex-col lg:flex-row lg:items-start gap-6"
+              : ""
+          }
+        >
+          <div className={showTranscriptPanel ? "flex-1 min-w-0" : ""}>
         {/* Lesson title */}
         <div className="mb-4 flex items-start justify-between gap-4">
           <div className="min-w-0">
-            <p className="text-xs text-foreground-subtle mb-1 font-medium uppercase tracking-wider">
-              {
-                course?.modules.find((m) => m.id === currentLesson.moduleId)
-                  ?.title
-              }
-            </p>
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mb-1">
+              <p className="text-xs text-foreground-subtle font-medium uppercase tracking-wider">
+                {currentModule?.title}
+              </p>
+              {moduleWatchStats.totalSeconds > 0 && (
+                <span className="text-[11px] font-mono text-foreground-muted">
+                  ·{" "}
+                  {moduleWatchStats.remainingSeconds > 0
+                    ? `${formatDuration(moduleWatchStats.remainingSeconds)} left in module`
+                    : "Module done"}
+                </span>
+              )}
+            </div>
             <h1 className="text-xl font-semibold text-foreground">
               {getDisplayTitle(currentLesson, lessonOverrides)}
             </h1>
           </div>
-          <button
-            onClick={() => markComplete(currentLesson.id)}
-            aria-pressed={getLessonProgress(progress, currentLesson.id).completed}
-            className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${FOCUS_RING} ${
-              getLessonProgress(progress, currentLesson.id).completed
-                ? "bg-success/15 border-success/30 text-success hover:bg-success/20"
-                : "bg-surface hover:bg-surface-hover border-border text-foreground-muted hover:text-foreground"
-            }`}
-            title={
-              getLessonProgress(progress, currentLesson.id).completed
-                ? "Mark lesson as incomplete"
-                : "Mark lesson as complete"
-            }
-          >
-            <svg
-              width="13"
-              height="13"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
+          <div className="shrink-0 flex items-center gap-2">
+            {hasAnyCourseSubtitles && (
+              <button
+                type="button"
+                onClick={toggleTranscript}
+                aria-pressed={transcriptOpen}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${FOCUS_RING} ${
+                  transcriptOpen
+                    ? "bg-accent/15 border-accent/30 text-accent hover:bg-accent/20"
+                    : "bg-surface hover:bg-surface-hover border-border text-foreground-muted hover:text-foreground"
+                }`}
+                title="Toggle transcript & subtitle search (T)"
+              >
+                <svg
+                  width="13"
+                  height="13"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                  <line x1="8" y1="9" x2="16" y2="9" />
+                  <line x1="8" y1="13" x2="13" y2="13" />
+                </svg>
+                <span className="hidden sm:inline">Transcript</span>
+              </button>
+            )}
+            <button
+              onClick={() => markComplete(currentLesson.id)}
+              aria-pressed={getLessonProgress(progress, currentLesson.id).completed}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${FOCUS_RING} ${
+                getLessonProgress(progress, currentLesson.id).completed
+                  ? "bg-success/15 border-success/30 text-success hover:bg-success/20"
+                  : "bg-surface hover:bg-surface-hover border-border text-foreground-muted hover:text-foreground"
+              }`}
+              title={
+                getLessonProgress(progress, currentLesson.id).completed
+                  ? "Mark lesson as incomplete"
+                  : "Mark lesson as complete"
+              }
             >
-              <polyline points="20 6 9 17 4 12" />
-            </svg>
-            <span className="hidden sm:inline">
-              {getLessonProgress(progress, currentLesson.id).completed
-                ? "Completed"
-                : "Mark complete"}
-            </span>
-          </button>
+              <svg
+                width="13"
+                height="13"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+              <span className="hidden sm:inline">
+                {getLessonProgress(progress, currentLesson.id).completed
+                  ? "Completed"
+                  : "Mark complete"}
+              </span>
+            </button>
+          </div>
         </div>
 
         {/* Video player */}
@@ -1067,6 +1199,23 @@ export function VideoPlayer() {
               className="w-full min-h-40 p-4 bg-transparent border-none text-sm leading-relaxed text-foreground focus:outline-none focus:ring-0 resize-y placeholder:text-foreground-muted/50"
             />
           </div>
+        </div>
+          </div>
+
+          {showTranscriptPanel && (
+            <div className="w-full lg:w-84 xl:w-96 shrink-0">
+              <TranscriptPanel
+                tracks={subtitleTracks}
+                currentTime={currentTime}
+                onSeek={handleSeekTo}
+                onClose={toggleTranscript}
+                course={course}
+                currentLesson={currentLesson}
+                lessonOverrides={lessonOverrides}
+                onJumpToLessonCue={(lesson, time) => selectLesson(lesson, time)}
+              />
+            </div>
+          )}
         </div>
       </div>
     </div>

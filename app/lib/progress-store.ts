@@ -1,4 +1,4 @@
-import { Course, CourseProgress, LessonProgress } from '@/app/types';
+import { Course, CourseProgress, Lesson, LessonProgress, Module } from '@/app/types';
 
 const STORAGE_KEY_PREFIX = 'foleyo_progress_';
 
@@ -177,22 +177,21 @@ const EMPTY_WATCH_TIME: WatchTimeStats = {
 };
 
 /**
- * Watch-time stats across all lessons with a known duration. Completed
- * lessons count as fully watched; partial lessons count up to their last
- * position.
+ * Watch-time stats across a specific list of lessons with a known duration.
+ * Completed lessons count as fully watched; partial lessons count up to their
+ * last position.
  */
-export function computeWatchTimeStats(
-  course: Course | null,
+export function computeLessonsWatchTimeStats(
+  lessons: Lesson[],
   progress: CourseProgress,
   lessonDurations: Record<string, number>
 ): WatchTimeStats {
-  if (!course) return EMPTY_WATCH_TIME;
+  if (lessons.length === 0) return EMPTY_WATCH_TIME;
 
-  const allLessons = course.modules.flatMap((m) => m.lessons);
   let totalSeconds = 0;
   let watchedSeconds = 0;
 
-  for (const lesson of allLessons) {
+  for (const lesson of lessons) {
     const dur = lessonDurations[lesson.id];
     if (dur && dur > 0) {
       totalSeconds += dur;
@@ -210,4 +209,36 @@ export function computeWatchTimeStats(
     totalSeconds > 0 ? Math.round((watchedSeconds / totalSeconds) * 100) : 0;
 
   return { totalSeconds, watchedSeconds, remainingSeconds, watchedPercentage };
+}
+
+/**
+ * Watch-time stats across all lessons in a course with a known duration.
+ */
+export function computeWatchTimeStats(
+  course: Course | null,
+  progress: CourseProgress,
+  lessonDurations: Record<string, number>
+): WatchTimeStats {
+  if (!course) return EMPTY_WATCH_TIME;
+  return computeLessonsWatchTimeStats(
+    course.modules.flatMap((m) => m.lessons),
+    progress,
+    lessonDurations
+  );
+}
+
+/**
+ * Watch-time stats for a single module (optionally restricted to visible lessons).
+ */
+export function computeModuleWatchTimeStats(
+  courseModule: Module | null | undefined,
+  progress: CourseProgress,
+  lessonDurations: Record<string, number>,
+  hiddenLessonIds?: Record<string, boolean>
+): WatchTimeStats {
+  if (!courseModule) return EMPTY_WATCH_TIME;
+  const lessons = hiddenLessonIds
+    ? courseModule.lessons.filter((l) => !hiddenLessonIds[l.id])
+    : courseModule.lessons;
+  return computeLessonsWatchTimeStats(lessons, progress, lessonDurations);
 }

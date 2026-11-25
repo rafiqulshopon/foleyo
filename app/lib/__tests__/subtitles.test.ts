@@ -7,6 +7,9 @@ import {
   pickDefaultSubtitle,
   readCaptionPreference,
   saveCaptionPreference,
+  parseVttCues,
+  findActiveCueIndex,
+  searchSubtitleCues,
 } from '@/app/lib/subtitles';
 import type { SubtitleInfo } from '@/app/types';
 import { FakeFileHandle } from './helpers/fake-fs';
@@ -107,5 +110,53 @@ describe('caption language preference', () => {
     expect(pickDefaultSubtitle(tracks, { enabled: true, language: 'fr' })).toBe('en');
     expect(pickDefaultSubtitle(tracks, { enabled: false, language: 'es' })).toBeNull();
     expect(pickDefaultSubtitle([{ language: 'ja' }], { enabled: true, language: null })).toBe('ja');
+  });
+});
+
+describe('parseVttCues, findActiveCueIndex & searchSubtitleCues', () => {
+  const sampleVtt = [
+    'WEBVTT',
+    '',
+    'NOTE this is a comment',
+    '',
+    '1',
+    '00:00:01.000 --> 00:00:04.500 align:start',
+    '<i>Welcome</i> to &amp; React',
+    '',
+    '00:00:06.000 --> 00:00:09.000',
+    'Today we build a',
+    'custom hook',
+  ].join('\n');
+
+  it('parses cues, strips VTT/HTML tags, decodes entities, and skips NOTE blocks', () => {
+    const cues = parseVttCues(sampleVtt);
+    expect(cues).toHaveLength(2);
+    expect(cues[0]).toMatchObject({
+      startTime: 1,
+      endTime: 4.5,
+      text: 'Welcome to & React',
+    });
+    expect(cues[1]).toMatchObject({
+      startTime: 6,
+      endTime: 9,
+      text: 'Today we build a custom hook',
+    });
+  });
+
+  it('finds the active cue index for a timestamp and returns -1 in gaps', () => {
+    const cues = parseVttCues(sampleVtt);
+    expect(findActiveCueIndex(cues, 0.2)).toBe(-1);
+    expect(findActiveCueIndex(cues, 2.5)).toBe(0);
+    expect(findActiveCueIndex(cues, 5.2)).toBe(-1);
+    expect(findActiveCueIndex(cues, 7.0)).toBe(1);
+    expect(findActiveCueIndex(cues, 15.0)).toBe(-1);
+  });
+
+  it('searches cues case-insensitively across multiple terms', () => {
+    const cues = parseVttCues(sampleVtt);
+    expect(searchSubtitleCues(cues, 'react welcome')).toHaveLength(1);
+    expect(searchSubtitleCues(cues, 'CUSTOM HOOK')).toHaveLength(1);
+    expect(searchSubtitleCues(cues, 'missing term')).toHaveLength(0);
+    expect(searchSubtitleCues(cues, '   ')).toHaveLength(2);
   });
 });

@@ -10,6 +10,7 @@ import {
 import { getCourseThumbnail } from '@/app/lib/thumbnail-generator';
 import { FOCUS_RING } from '@/app/components/focus-ring';
 import { ErrorAlert } from '@/app/components/error-alert';
+import { WatchActivityCard } from '@/app/components/watch-activity-panel';
 import { VIDEO_EXTENSIONS, SUBTITLE_EXTENSIONS } from '@/app/types';
 
 /** The label style that structures the whole page — mono, uppercase, tracked out. */
@@ -390,11 +391,12 @@ function Reference() {
         <div className="md:border-l md:border-border-subtle md:pl-8">
           <h3 className={`${LABEL} font-medium`}>Shortcuts</h3>
           <div className="mt-3 space-y-2">
+            <Shortcut keys={['⌘K']} action="command palette" />
             <Shortcut keys={['Space', 'K']} action="play / pause" />
             <Shortcut keys={['←', '→']} action="seek 5s" />
             <Shortcut keys={['↑', '↓']} action="volume" />
             <Shortcut keys={['M', 'F']} action="mute · fullscreen" />
-            <Shortcut keys={['C', 'I']} action="captions · PiP" />
+            <Shortcut keys={['C', 'T']} action="captions · transcript" />
             <Shortcut keys={['<', '>']} action="speed down / up" />
           </div>
           <p className="mt-3 text-xs leading-relaxed text-foreground-muted">
@@ -515,6 +517,14 @@ export function WelcomeScreen() {
           </p>
         ) : (
           <>
+            {/* Watch Activity & Daily Streak */}
+            <section className="mt-14 border-t border-border-subtle pt-10">
+              <SectionLabel label="Activity" meta="Daily streak & watch history" />
+              <div className="mt-4">
+                <WatchActivityCard weeks={20} />
+              </div>
+            </section>
+
             {/* Library */}
             {hasRecent && (
               <section className="mt-14 border-t border-border-subtle pt-10">

@@ -10,6 +10,7 @@ import {
   getCompletionStats,
   getLessonProgress,
   computeWatchTimeStats,
+  computeModuleWatchTimeStats,
 } from '@/app/lib/progress-store';
 import type { Course } from '@/app/types';
 
@@ -218,5 +219,28 @@ describe('computeWatchTimeStats', () => {
     expect(stats.watchedSeconds).toBe(50);
     expect(stats.remainingSeconds).toBe(50);
     expect(stats.watchedPercentage).toBe(50);
+  });
+
+  it('computes module-level watch time stats and respects hidden lessons', () => {
+    let p = createEmptyProgress('Course');
+    p = updateLessonProgress(p, 'a', { lastPosition: 40 });
+
+    const modStats = computeModuleWatchTimeStats(
+      fakeCourse.modules[0],
+      p,
+      { a: 100, b: 200 }
+    );
+    expect(modStats.totalSeconds).toBe(300);
+    expect(modStats.watchedSeconds).toBe(40);
+    expect(modStats.remainingSeconds).toBe(260);
+
+    const filteredStats = computeModuleWatchTimeStats(
+      fakeCourse.modules[0],
+      p,
+      { a: 100, b: 200 },
+      { b: true }
+    );
+    expect(filteredStats.totalSeconds).toBe(100);
+    expect(filteredStats.remainingSeconds).toBe(60);
   });
 });

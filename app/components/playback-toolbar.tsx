@@ -18,6 +18,8 @@ export interface LoopRange {
 }
 
 const SHORTCUTS: [string, string][] = [
+  ["⌘K / Ctrl+K", "Command palette (jump anywhere)"],
+  ["T", "Toggle transcript & subtitle search"],
   ["N", "Bookmark current second"],
   ["Shift + N / Shift + P", "Next / previous lesson"],
   ["A", "Set loop start, then end; again to clear"],

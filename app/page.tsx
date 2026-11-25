@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { CourseProvider, useCourse } from '@/app/context/course-context';
+import { useLessonDurations } from '@/app/context/lesson-durations-context';
 import { ThemeProvider } from '@/app/context/theme-context';
 import { Header } from '@/app/components/header';
 import { Sidebar } from '@/app/components/sidebar';
@@ -10,8 +11,17 @@ import { HtmlLessonViewer } from '@/app/components/html-lesson-viewer';
 import { ResourceViewer } from '@/app/components/resource-viewer';
 import { WelcomeScreen } from '@/app/components/welcome-screen';
 import { ErrorAlert } from '@/app/components/error-alert';
+import { WatchActivityModal } from '@/app/components/watch-activity-panel';
+import { CourseCompletionModal } from '@/app/components/course-completion-modal';
+import { CommandPalette } from '@/app/components/command-palette';
+import {
+  computeModuleWatchTimeStats,
+  computeWatchTimeStats,
+  getCompletionStats,
+} from '@/app/lib/progress-store';
+import { getVisibleLessons, useLessonOverrides } from '@/app/lib/lesson-overrides';
 import { CODEC_WARNING, getLessonKind } from '@/app/types';
-import { useSyncExternalStore, useState } from 'react';
+import { useSyncExternalStore, useState, useEffect, useRef } from 'react';
 
 // Feature detection can't change at runtime — a no-op subscription is enough.
 const subscribeNoop = () => () => {};
@@ -80,11 +90,56 @@ function CourseApp() {
     currentLesson,
     activeResource,
     closeResource,
+    progress,
+    activityOpen,
+    setActivityOpen,
     error,
     hasUnsupportedFormat,
     invalidLink,
   } = useCourse();
+  const { lessonDurations } = useLessonDurations();
+  const overrides = useLessonOverrides(course?.name);
   const [unsupportedDismissed, setUnsupportedDismissed] = useState(false);
+  const [completionModalOpen, setCompletionModalOpen] = useState(false);
+
+  const visibleLessons = getVisibleLessons(course, overrides);
+  const completionStats = getCompletionStats(
+    progress,
+    visibleLessons.map((l) => l.id)
+  );
+  const watchStats = computeWatchTimeStats(course, progress, lessonDurations);
+  const currentModule = course?.modules.find(
+    (m) => m.id === currentLesson?.moduleId
+  );
+  const moduleWatchStats = computeModuleWatchTimeStats(
+    currentModule,
+    progress,
+    lessonDurations,
+    overrides.hidden
+  );
+
+  // Trigger the celebration modal when a course transitions from <100% to 100%
+  const prevCompletionRef = useRef<{ courseName: string; percentage: number } | null>(null);
+  useEffect(() => {
+    if (!course) {
+      prevCompletionRef.current = null;
+      return;
+    }
+    const prev = prevCompletionRef.current;
+    const isNowComplete = completionStats.total > 0 && completionStats.percentage === 100;
+    if (
+      prev &&
+      prev.courseName === course.name &&
+      prev.percentage < 100 &&
+      isNowComplete
+    ) {
+      setCompletionModalOpen(true);
+    }
+    prevCompletionRef.current = {
+      courseName: course.name,
+      percentage: completionStats.percentage,
+    };
+  }, [course, completionStats.percentage, completionStats.total]);
 
   return (
     <div className="h-full flex flex-col">
@@ -183,6 +238,20 @@ function CourseApp() {
           <WelcomeScreen />
         )}
       </div>
+
+      {/* Global overlays */}
+      <WatchActivityModal
+        open={activityOpen}
+        onClose={() => setActivityOpen(false)}
+        courseRemainingSeconds={course ? watchStats.remainingSeconds : 0}
+        moduleRemainingSeconds={course ? moduleWatchStats.remainingSeconds : 0}
+        moduleTitle={currentModule?.title}
+      />
+      <CourseCompletionModal
+        open={completionModalOpen}
+        onClose={() => setCompletionModalOpen(false)}
+      />
+      <CommandPalette />
     </div>
   );
 }

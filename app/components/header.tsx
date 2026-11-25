@@ -3,10 +3,11 @@
 import { useCourse } from '@/app/context/course-context';
 import { useLessonDurations } from '@/app/context/lesson-durations-context';
 import { useTheme } from '@/app/context/theme-context';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import Image from 'next/image';
 import { FOCUS_RING } from '@/app/components/focus-ring';
 import {
+  computeModuleWatchTimeStats,
   computeWatchTimeStats,
   getCompletionStats,
 } from '@/app/lib/progress-store';
@@ -14,16 +15,12 @@ import {
   getVisibleLessons,
   useLessonOverrides,
 } from '@/app/lib/lesson-overrides';
-
-function formatDuration(totalSeconds: number): string {
-  if (totalSeconds <= 0) return '0m';
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  if (hours > 0) {
-    return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
-  }
-  return `${minutes}m`;
-}
+import {
+  computeWatchStreakStats,
+  estimateFinishDate,
+  useWatchHistory,
+} from '@/app/lib/watch-history';
+import { formatDuration } from '@/app/lib/time';
 
 function ThemeToggle() {
   const { theme, toggleTheme } = useTheme();
@@ -90,16 +87,20 @@ function ThemeToggle() {
 export function Header() {
   const {
     course,
+    currentLesson,
     progress,
     autoplay,
     sidebarOpen,
     toggleAutoplay,
     toggleSidebar,
+    setActivityOpen,
+    setCommandPaletteOpen,
     openFolder,
     closeCourse,
   } = useCourse();
   const { lessonDurations } = useLessonDurations();
   const overrides = useLessonOverrides(course?.name);
+  const watchHistory = useWatchHistory();
 
   const visibleLessons = getVisibleLessons(course, overrides);
   const stats = getCompletionStats(
@@ -107,6 +108,32 @@ export function Header() {
     visibleLessons.map((l) => l.id)
   );
   const watchStats = computeWatchTimeStats(course, progress, lessonDurations);
+  const currentModule = course?.modules.find(
+    (m) => m.id === currentLesson?.moduleId
+  );
+  const moduleWatchStats = computeModuleWatchTimeStats(
+    currentModule,
+    progress,
+    lessonDurations,
+    overrides.hidden
+  );
+  const streakStats = useMemo(
+    () => computeWatchStreakStats(watchHistory),
+    [watchHistory]
+  );
+  const eta = useMemo(
+    () =>
+      estimateFinishDate(
+        watchStats.remainingSeconds,
+        streakStats.averageDailySeconds,
+        streakStats.dailyGoalMinutes
+      ),
+    [
+      watchStats.remainingSeconds,
+      streakStats.averageDailySeconds,
+      streakStats.dailyGoalMinutes,
+    ]
+  );
 
   return (
     <header className="h-14 border-b border-border flex items-center justify-between px-4 bg-surface/80 backdrop-blur-md z-20 shrink-0">
@@ -215,6 +242,19 @@ export function Header() {
                       {watchStats.remainingSeconds > 0 && (
                         <span className="text-foreground-muted"> · {formatDuration(watchStats.remainingSeconds)} left</span>
                       )}
+                      {moduleWatchStats.remainingSeconds > 0 && (
+                        <span className="hidden lg:inline text-foreground-subtle">
+                          {' '}· Mod {formatDuration(moduleWatchStats.remainingSeconds)}
+                        </span>
+                      )}
+                      {eta && (
+                        <span
+                          className="hidden xl:inline text-accent"
+                          title={`Estimated finish based on ${eta.paceMinutesPerDay}m/day ${eta.basis === 'average' ? 'average' : 'goal'}`}
+                        >
+                          {' '}· Est. {eta.label}
+                        </span>
+                      )}
                     </span>
                   </div>
                 )}
@@ -276,6 +316,53 @@ export function Header() {
             </button>
           </>
         )}
+
+        {/* Watch streak & today's watch time pill */}
+        <button
+          type="button"
+          onClick={() => setActivityOpen(true)}
+          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-mono border transition-colors ${FOCUS_RING} ${
+            streakStats.goalMetToday
+              ? 'bg-success/10 border-success/30 text-success hover:bg-success/15'
+              : 'bg-surface-hover/60 border-border text-foreground-muted hover:text-foreground hover:bg-surface-hover'
+          }`}
+          aria-label="Open watch activity and daily streak"
+          title={`Watched ${formatDuration(streakStats.todaySeconds)} today · ${streakStats.currentStreak} day streak`}
+        >
+          <span aria-hidden="true" className="text-[11px]">🔥</span>
+          <span>{streakStats.currentStreak}d</span>
+          <span className="hidden sm:inline text-foreground-subtle">·</span>
+          <span className="hidden sm:inline">
+            {streakStats.todayMinutes}m
+          </span>
+        </button>
+
+        {/* Command palette trigger (⌘K) */}
+        <button
+          type="button"
+          onClick={() => setCommandPaletteOpen(true)}
+          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs text-foreground-muted hover:text-foreground bg-surface-hover/60 hover:bg-surface-hover border border-border transition-colors ${FOCUS_RING}`}
+          aria-label="Open command palette"
+          title="Command palette (⌘K / Ctrl+K)"
+        >
+          <svg
+            width="13"
+            height="13"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <circle cx="11" cy="11" r="8" />
+            <line x1="21" y1="21" x2="16.65" y2="16.65" />
+          </svg>
+          <kbd className="hidden md:inline font-mono text-[10px] text-foreground-subtle">
+            ⌘K
+          </kbd>
+        </button>
 
         {/* Theme toggle — always visible */}
         <ThemeToggle />

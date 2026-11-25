@@ -65,6 +65,13 @@ export interface AutoAdvance {
   endsAt: number;
 }
 
+/** A one-shot seek request (e.g. jumping to a subtitle match in any lesson). */
+export interface PendingSeek {
+  lessonId: string;
+  time: number;
+  nonce: number;
+}
+
 interface CourseContextType {
   // State
   course: Course | null;
@@ -76,7 +83,11 @@ interface CourseContextType {
   progress: CourseProgress;
   autoplay: boolean;
   autoAdvance: AutoAdvance | null;
+  pendingSeek: PendingSeek | null;
   sidebarOpen: boolean;
+  transcriptOpen: boolean;
+  activityOpen: boolean;
+  commandPaletteOpen: boolean;
   windowFullscreen: boolean;
   isLoading: boolean;
   error: string | null;
@@ -87,13 +98,17 @@ interface CourseContextType {
   // Actions
   openFolder: () => Promise<void>;
   resumeRecentCourse: (folderName: string) => Promise<void>;
-  selectLesson: (lesson: Lesson) => Promise<void>;
+  selectLesson: (lesson: Lesson, seekTime?: number) => Promise<void>;
+  clearPendingSeek: () => void;
   openResource: (resource: CourseResource) => Promise<void>;
   closeResource: () => void;
   nextLesson: () => void;
   prevLesson: () => void;
   toggleAutoplay: () => void;
   toggleSidebar: () => void;
+  toggleTranscript: () => void;
+  setActivityOpen: (open: boolean) => void;
+  setCommandPaletteOpen: (open: boolean) => void;
   toggleWindowFullscreen: () => void;
   exitWindowFullscreen: () => void;
   markComplete: (lessonId: string) => void;
@@ -125,7 +140,11 @@ export function CourseProvider({ children }: { children: ReactNode }) {
   );
   const [autoplay, setAutoplay] = useState(true);
   const [autoAdvance, setAutoAdvance] = useState<AutoAdvance | null>(null);
+  const [pendingSeek, setPendingSeek] = useState<PendingSeek | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [transcriptOpen, setTranscriptOpen] = useState(false);
+  const [activityOpen, setActivityOpen] = useState(false);
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [windowFullscreen, setWindowFullscreen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -434,12 +453,33 @@ export function CourseProvider({ children }: { children: ReactNode }) {
     [initializeCourse]
   );
 
-  // Select a specific lesson
+  const clearPendingSeek = useCallback(() => {
+    setPendingSeek(null);
+  }, []);
+
+  // Select a specific lesson (optionally seeking to a timestamp once loaded)
   const selectLesson = useCallback(
-    async (lesson: Lesson) => {
+    async (lesson: Lesson, seekTime?: number) => {
       cancelAutoAdvance(); // manual navigation cancels any pending countdown
       setActiveResource(null);
       setError(null);
+
+      // If selecting the already-open lesson with a seekTime, just trigger the seek
+      if (
+        currentLesson?.id === lesson.id &&
+        typeof seekTime === 'number' &&
+        Number.isFinite(seekTime)
+      ) {
+        setPendingSeek({ lessonId: lesson.id, time: Math.max(0, seekTime), nonce: Date.now() });
+        return;
+      }
+
+      if (typeof seekTime === 'number' && Number.isFinite(seekTime)) {
+        setPendingSeek({ lessonId: lesson.id, time: Math.max(0, seekTime), nonce: Date.now() });
+      } else {
+        setPendingSeek(null);
+      }
+
       try {
         if (getLessonKind(lesson) === 'video') {
           const url = await loadVideo(lesson);
@@ -454,7 +494,7 @@ export function CourseProvider({ children }: { children: ReactNode }) {
         setError(`Failed to load lesson: ${e instanceof Error ? e.message : 'Unknown error'}`);
       }
     },
-    [loadVideo, showVideo, resetVideo, cancelAutoAdvance]
+    [currentLesson?.id, loadVideo, showVideo, resetVideo, cancelAutoAdvance]
   );
 
   // Open a non-video course resource (in-app for PDF/MD/TXT/Folder, system/download for others)
@@ -576,6 +616,11 @@ export function CourseProvider({ children }: { children: ReactNode }) {
   // Toggle sidebar
   const toggleSidebar = useCallback(() => {
     setSidebarOpen((prev) => !prev);
+  }, []);
+
+  // Toggle transcript panel
+  const toggleTranscript = useCallback(() => {
+    setTranscriptOpen((prev) => !prev);
   }, []);
 
   // Mark lesson complete/incomplete (updater is pure; the metadata sync
@@ -759,7 +804,11 @@ export function CourseProvider({ children }: { children: ReactNode }) {
       progress,
       autoplay,
       autoAdvance,
+      pendingSeek,
       sidebarOpen,
+      transcriptOpen,
+      activityOpen,
+      commandPaletteOpen,
       windowFullscreen,
       isLoading,
       error,
@@ -769,12 +818,16 @@ export function CourseProvider({ children }: { children: ReactNode }) {
       openFolder,
       resumeRecentCourse,
       selectLesson,
+      clearPendingSeek,
       openResource,
       closeResource,
       nextLesson,
       prevLesson,
       toggleAutoplay,
       toggleSidebar,
+      toggleTranscript,
+      setActivityOpen,
+      setCommandPaletteOpen,
       toggleWindowFullscreen,
       exitWindowFullscreen,
       markComplete,
@@ -798,7 +851,11 @@ export function CourseProvider({ children }: { children: ReactNode }) {
       progress,
       autoplay,
       autoAdvance,
+      pendingSeek,
       sidebarOpen,
+      transcriptOpen,
+      activityOpen,
+      commandPaletteOpen,
       windowFullscreen,
       isLoading,
       error,
@@ -808,12 +865,16 @@ export function CourseProvider({ children }: { children: ReactNode }) {
       openFolder,
       resumeRecentCourse,
       selectLesson,
+      clearPendingSeek,
       openResource,
       closeResource,
       nextLesson,
       prevLesson,
       toggleAutoplay,
       toggleSidebar,
+      toggleTranscript,
+      setActivityOpen,
+      setCommandPaletteOpen,
       toggleWindowFullscreen,
       exitWindowFullscreen,
       markComplete,

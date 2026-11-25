@@ -2,7 +2,13 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useCourse } from '@/app/context/course-context';
-import { getCompletionStats, getLessonProgress } from '@/app/lib/progress-store';
+import { useLessonDurations } from '@/app/context/lesson-durations-context';
+import {
+  computeModuleWatchTimeStats,
+  getCompletionStats,
+  getLessonProgress,
+} from '@/app/lib/progress-store';
+import { formatDuration } from '@/app/lib/time';
 import { useCourseNotes } from '@/app/lib/use-notes';
 import { useCourseBookmarks, type CourseBookmarks } from '@/app/lib/bookmarks';
 import {
@@ -157,6 +163,7 @@ function ModuleItem({
     setModuleComplete,
     hideLesson,
   } = useCourse();
+  const { lessonDurations } = useLessonDurations();
   const [expanded, setExpanded] = useState(true);
   const [editingLessonId, setEditingLessonId] = useState<string | null>(null);
   const [draftTitle, setDraftTitle] = useState('');
@@ -169,6 +176,12 @@ function ModuleItem({
   const stats = getCompletionStats(
     progress,
     visibleModuleLessons.map((l) => l.id)
+  );
+  const moduleWatchStats = computeModuleWatchTimeStats(
+    module,
+    progress,
+    lessonDurations,
+    overrides.hidden
   );
   const allModuleDone = stats.total > 0 && stats.completed === stats.total;
   const isActive =
@@ -275,6 +288,10 @@ function ModuleItem({
               </div>
               <span className="text-[10px] text-foreground-subtle whitespace-nowrap">
                 {stats.completed}/{stats.total}
+                {moduleWatchStats.totalSeconds > 0 &&
+                  moduleWatchStats.remainingSeconds > 0 && (
+                    <span> · {formatDuration(moduleWatchStats.remainingSeconds)} left</span>
+                  )}
               </span>
             </div>
           </div>

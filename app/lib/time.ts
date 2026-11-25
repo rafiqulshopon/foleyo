@@ -33,3 +33,17 @@ export function parseTimestamp(input: string): number | null {
   const fraction = frac ? Number(`0.${frac}`) : 0;
   return hours * 3600 + minutes * 60 + seconds + fraction;
 }
+
+/**
+ * Format seconds into a compact human-readable duration (e.g. `42m`, `1h 15m`, `<1m`).
+ */
+export function formatDuration(totalSeconds: number): string {
+  if (!Number.isFinite(totalSeconds) || totalSeconds <= 0) return '0m';
+  if (totalSeconds < 60) return '<1m';
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  if (hours > 0) {
+    return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
+  }
+  return `${minutes}m`;
+}

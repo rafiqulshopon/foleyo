@@ -216,6 +216,25 @@ html[data-theme="light"] .theme-icon-sun { display: none; }
   animation: autoAdvanceShrink 5s linear forwards;
 }
 
+/* Course completion confetti fall */
+@keyframes confettiFall {
+  0% {
+    opacity: 0;
+    transform: translateY(-10px) rotate(0deg);
+  }
+  15% {
+    opacity: 0.9;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(100px) rotate(220deg);
+  }
+}
+
+.confetti-piece {
+  animation: confettiFall 1.8s ease-out forwards;
+}
+
 /* ──────────────────────────────────────────────
    Reduced motion — disable animation app-wide
    ────────────────────────────────────────────── */
