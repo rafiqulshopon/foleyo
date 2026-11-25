@@ -59,7 +59,17 @@ import {
   saveCaptionPreference,
 } from "@/app/lib/subtitles";
 import { chaptersToCues } from "@/app/lib/chapters";
-import { formatDuration, formatTimestamp } from "@/app/lib/time";
+import { formatDuration } from "@/app/lib/time";
+import {
+  buildNotesExport,
+  type NotesExportFormat,
+  type NotesExportScope,
+} from "@/app/lib/notes-export";
+import {
+  generateSeekThumbnailStoryboard,
+  type ThumbnailStoryboard,
+} from "@/app/lib/seek-thumbnails";
+import { buildCodecHelp } from "@/app/lib/codec-help";
 import {
   BookmarksPanel,
   type BookmarkFocusRequest,
@@ -134,6 +144,21 @@ export function VideoPlayer() {
   }>({ url: null, id: null });
   const [bookmarkFocus, setBookmarkFocus] =
     useState<BookmarkFocusRequest | null>(null);
+  const [mediaErrorUrl, setMediaErrorUrl] = useState<string | null>(null);
+  const [showCodecFix, setShowCodecFix] = useState(false);
+  const [copiedCmd, setCopiedCmd] = useState<string | null>(null);
+  const [seekThumbState, setSeekThumbState] = useState<{
+    url: string;
+    storyboard: ThumbnailStoryboard;
+  } | null>(null);
+
+  // Notes export options state
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
+  const [exportScope, setExportScope] = useState<NotesExportScope>("course");
+  const [exportFormat, setExportFormat] =
+    useState<NotesExportFormat>("markdown");
+  const [exportTimestamps, setExportTimestamps] = useState(true);
+  const [copiedNotes, setCopiedNotes] = useState(false);
 
   const { note, updateNote, isSaved } = useNotes(
     course?.name,
@@ -171,8 +196,49 @@ export function VideoPlayer() {
     Object.keys(courseBookmarks).length > 0 ||
     note.trim() !== "";
 
-  const handleExportNotes = useCallback(() => {
-    if (!course) return;
+  const hasMediaError = videoUrl !== null && mediaErrorUrl === videoUrl;
+  const seekThumbnails =
+    videoUrl !== null && seekThumbState?.url === videoUrl
+      ? seekThumbState.storyboard
+      : undefined;
+
+  // Generate seek-bar thumbnail sprite sheet in the background once duration is known
+  useEffect(() => {
+    if (!videoUrl || videoDuration < 4 || hasMediaError) return;
+
+    const controller = new AbortController();
+    let createdUrl: string | null = null;
+
+    generateSeekThumbnailStoryboard(
+      videoUrl,
+      videoDuration,
+      controller.signal,
+    ).then((storyboard) => {
+      if (controller.signal.aborted) {
+        if (storyboard) URL.revokeObjectURL(storyboard.url);
+        return;
+      }
+      if (storyboard) {
+        createdUrl = storyboard.url;
+        setSeekThumbState({ url: videoUrl, storyboard });
+      }
+    });
+
+    return () => {
+      controller.abort();
+      if (createdUrl) URL.revokeObjectURL(createdUrl);
+    };
+  }, [videoUrl, videoDuration, hasMediaError]);
+
+  const copyCommand = useCallback((cmd: string) => {
+    navigator.clipboard?.writeText(cmd).then(() => {
+      setCopiedCmd(cmd);
+      setTimeout(() => setCopiedCmd((prev) => (prev === cmd ? null : prev)), 2000);
+    }).catch(() => {});
+  }, []);
+
+  const buildCurrentNotesExport = useCallback(() => {
+    if (!course) return null;
 
     const allNotes = { ...courseNotes };
     if (currentLesson && note.trim() !== "") {
@@ -181,51 +247,56 @@ export function VideoPlayer() {
       delete allNotes[currentLesson.id];
     }
 
-    const hasBookmarks = Object.keys(courseBookmarks).length > 0;
-    if (Object.keys(allNotes).length === 0 && !hasBookmarks) return;
+    return buildNotesExport(
+      course,
+      allNotes,
+      courseBookmarks,
+      lessonOverrides,
+      {
+        format: exportFormat,
+        scope: exportScope,
+        moduleId: currentLesson?.moduleId,
+        includeTimestamps: exportTimestamps,
+      },
+    );
+  }, [
+    course,
+    courseNotes,
+    courseBookmarks,
+    currentLesson,
+    note,
+    lessonOverrides,
+    exportFormat,
+    exportScope,
+    exportTimestamps,
+  ]);
 
-    let markdown = `# ${course.name} — Notes\n\n`;
+  const handleExportNotes = useCallback(() => {
+    const result = buildCurrentNotesExport();
+    if (!result || !result.hasContent) return;
 
-    course.modules.forEach((module) => {
-      let moduleHasNotes = false;
-      let moduleMarkdown = `## ${module.title}\n\n`;
-
-      module.lessons.forEach((lesson) => {
-        const lessonNote = allNotes[lesson.id]?.trim() ?? "";
-        const bookmarks = courseBookmarks[lesson.id] ?? [];
-        if (lessonNote !== "" || bookmarks.length > 0) {
-          moduleHasNotes = true;
-          moduleMarkdown += `### ${getDisplayTitle(lesson, lessonOverrides)}\n`;
-          if (bookmarks.length > 0) {
-            bookmarks.forEach((b) => {
-              const ts = `**${formatTimestamp(b.time)}**`;
-              moduleMarkdown += b.text.trim()
-                ? `- ${ts} — ${b.text.trim()}\n`
-                : `- ${ts}\n`;
-            });
-            moduleMarkdown += "\n";
-          }
-          if (lessonNote !== "") {
-            moduleMarkdown += `${lessonNote}\n\n`;
-          }
-        }
-      });
-
-      if (moduleHasNotes) {
-        markdown += moduleMarkdown;
-      }
+    const blob = new Blob([result.content], {
+      type: "text/markdown;charset=utf-8",
     });
-
-    const blob = new Blob([markdown], { type: "text/markdown;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `${course.name.replace(/[^a-z0-9]/gi, "_").toLowerCase()}-notes.md`;
+    a.download = result.fileName;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-  }, [course, courseNotes, courseBookmarks, currentLesson, note, lessonOverrides]);
+    setExportMenuOpen(false);
+  }, [buildCurrentNotesExport]);
+
+  const handleCopyNotes = useCallback(() => {
+    const result = buildCurrentNotesExport();
+    if (!result || !result.hasContent) return;
+    navigator.clipboard?.writeText(result.content).then(() => {
+      setCopiedNotes(true);
+      setTimeout(() => setCopiedNotes(false), 2000);
+    }).catch(() => {});
+  }, [buildCurrentNotesExport]);
 
   // Per-course playback rate, falling back to the global saved speed
   const [globalPlaybackRate, setGlobalPlaybackRate] = useState<number>(() =>
@@ -769,6 +840,7 @@ export function VideoPlayer() {
         m.lessons.some((l) => l.subtitles && l.subtitles.length > 0),
       ),
     );
+  const codecHelp = buildCodecHelp(currentLesson.fileName);
   const showTranscriptPanel = transcriptOpen && !windowFullscreen;
 
   return (
@@ -940,6 +1012,7 @@ export function VideoPlayer() {
               onDurationChange={handleDurationChange}
               onCanPlay={handleCanPlay}
               onEnded={handleEnded}
+              onError={() => setMediaErrorUrl(videoUrl)}
               onRateChange={handleRateChange}
               onTextTrackChange={(track, nativeEvent) => {
                 if (subtitleTracks.length === 0 || !nativeEvent.trigger) return;
@@ -987,10 +1060,96 @@ export function VideoPlayer() {
               </MediaProvider>
               <DefaultVideoLayout
                 icons={defaultLayoutIcons}
+                thumbnails={seekThumbnails}
                 playbackRates={playbackRateOptions(playbackRate)}
                 slots={layoutSlots}
               />
             </MediaPlayer>
+          )}
+
+          {/* Codec / playback error overlay with tailored ffmpeg commands */}
+          {hasMediaError && (
+            <div
+              className="absolute inset-0 z-20 flex items-center justify-center bg-black/90 p-5 overflow-y-auto"
+              role="alert"
+            >
+              <div className="max-w-lg w-full space-y-3 text-left">
+                <div className="flex items-start gap-2.5">
+                  <svg
+                    width="20"
+                    height="20"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    className="text-warning shrink-0 mt-0.5"
+                    aria-hidden="true"
+                  >
+                    <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+                    <line x1="12" y1="9" x2="12" y2="13" />
+                    <line x1="12" y1="17" x2="12.01" y2="17" />
+                  </svg>
+                  <div>
+                    <h3 className="text-sm font-semibold text-white">
+                      {codecHelp.headline}
+                    </h3>
+                    <p className="mt-1 text-xs leading-relaxed text-white/70">
+                      {codecHelp.explanation}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="space-y-2 pt-1">
+                  <div className="rounded-lg bg-white/5 border border-white/10 p-2.5">
+                    <div className="flex items-center justify-between gap-2 mb-1">
+                      <span className="font-mono text-[10px] uppercase tracking-wider text-white/60">
+                        Fast fix (keep video, convert audio to AAC)
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => copyCommand(codecHelp.remuxCommand)}
+                        className="font-mono text-[10px] text-accent-hover hover:underline"
+                      >
+                        {copiedCmd === codecHelp.remuxCommand ? "Copied!" : "Copy"}
+                      </button>
+                    </div>
+                    <code className="block font-mono text-[11px] text-white/90 break-all select-all">
+                      {codecHelp.remuxCommand}
+                    </code>
+                  </div>
+
+                  <div className="rounded-lg bg-white/5 border border-white/10 p-2.5">
+                    <div className="flex items-center justify-between gap-2 mb-1">
+                      <span className="font-mono text-[10px] uppercase tracking-wider text-white/60">
+                        Full transcode (H.264 + AAC — plays everywhere)
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => copyCommand(codecHelp.transcodeCommand)}
+                        className="font-mono text-[10px] text-accent-hover hover:underline"
+                      >
+                        {copiedCmd === codecHelp.transcodeCommand ? "Copied!" : "Copy"}
+                      </button>
+                    </div>
+                    <code className="block font-mono text-[11px] text-white/90 break-all select-all">
+                      {codecHelp.transcodeCommand}
+                    </code>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-end gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setMediaErrorUrl(null)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-medium bg-white/10 hover:bg-white/20 text-white border border-white/15 transition-colors ${FOCUS_RING}`}
+                  >
+                    Retry playback
+                  </button>
+                </div>
+              </div>
+            </div>
           )}
 
           {/* Auto-advance countdown overlay */}
@@ -1069,23 +1228,48 @@ export function VideoPlayer() {
 
         {/* Codec-risk warning (MKV/MOV may contain codecs Chrome can't decode) */}
         {hasCodecRisk(currentLesson.fileName) && (
-          <div className="mt-4 px-4 py-3 rounded-xl bg-warning/10 border border-warning/20 text-warning text-xs flex items-start gap-2">
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              className="shrink-0 mt-0.5"
-            >
-              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
-              <line x1="12" y1="9" x2="12" y2="13" />
-              <line x1="12" y1="17" x2="12.01" y2="17" />
-            </svg>
-            <span>{CODEC_WARNING}</span>
+          <div className="mt-4 px-4 py-3 rounded-xl bg-warning/10 border border-warning/20 text-warning text-xs space-y-2">
+            <div className="flex items-start justify-between gap-2">
+              <div className="flex items-start gap-2">
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="shrink-0 mt-0.5"
+                >
+                  <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+                  <line x1="12" y1="9" x2="12" y2="13" />
+                  <line x1="12" y1="17" x2="12.01" y2="17" />
+                </svg>
+                <span>{CODEC_WARNING}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowCodecFix((v) => !v)}
+                className="shrink-0 font-mono text-[11px] underline hover:opacity-80"
+              >
+                {showCodecFix ? "Hide ffmpeg" : "ffmpeg fix"}
+              </button>
+            </div>
+            {showCodecFix && (
+              <div className="rounded-lg bg-background/70 border border-warning/20 p-2.5 flex items-center justify-between gap-2 text-foreground">
+                <code className="font-mono text-[11px] break-all select-all">
+                  {codecHelp.transcodeCommand}
+                </code>
+                <button
+                  type="button"
+                  onClick={() => copyCommand(codecHelp.transcodeCommand)}
+                  className="shrink-0 font-mono text-[10px] text-accent hover:underline"
+                >
+                  {copiedCmd === codecHelp.transcodeCommand ? "Copied!" : "Copy"}
+                </button>
+              </div>
+            )}
           </div>
         )}
 
@@ -1159,16 +1343,18 @@ export function VideoPlayer() {
               </span>
 
               <button
-                onClick={handleExportNotes}
+                type="button"
+                onClick={() => setExportMenuOpen((v) => !v)}
                 disabled={!hasAnyNotes}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                aria-expanded={exportMenuOpen}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${FOCUS_RING} ${
                   hasAnyNotes
                     ? "bg-accent/10 text-accent hover:bg-accent hover:text-white"
                     : "bg-surface text-foreground-muted cursor-not-allowed"
                 }`}
                 title={
                   hasAnyNotes
-                    ? "Export all notes for this course as Markdown"
+                    ? "Export notes (Markdown, Obsidian, or Notion)"
                     : "No notes yet"
                 }
               >
@@ -1186,10 +1372,94 @@ export function VideoPlayer() {
                   <polyline points="7 10 12 15 17 10" />
                   <line x1="12" y1="15" x2="12" y2="3" />
                 </svg>
-                Export .md
+                Export
               </button>
             </div>
           </div>
+
+          {exportMenuOpen && hasAnyNotes && (
+            <div className="px-5 py-3.5 border-b border-border bg-background/60 flex flex-wrap items-center gap-x-5 gap-y-2.5 text-xs">
+              <div className="flex items-center gap-2">
+                <span className="text-foreground-subtle font-medium">Scope</span>
+                <div className="inline-flex rounded-lg bg-surface p-0.5 border border-border">
+                  <button
+                    type="button"
+                    onClick={() => setExportScope("course")}
+                    className={`px-2 py-0.5 rounded-md transition-colors ${
+                      exportScope === "course"
+                        ? "bg-accent/15 text-accent font-medium"
+                        : "text-foreground-muted hover:text-foreground"
+                    }`}
+                  >
+                    Whole course
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setExportScope("module")}
+                    className={`px-2 py-0.5 rounded-md transition-colors ${
+                      exportScope === "module"
+                        ? "bg-accent/15 text-accent font-medium"
+                        : "text-foreground-muted hover:text-foreground"
+                    }`}
+                  >
+                    This module
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <span className="text-foreground-subtle font-medium">Format</span>
+                <div className="inline-flex rounded-lg bg-surface p-0.5 border border-border">
+                  {(
+                    [
+                      ["markdown", "Markdown"],
+                      ["obsidian", "Obsidian"],
+                      ["notion", "Notion"],
+                    ] as const
+                  ).map(([fmt, label]) => (
+                    <button
+                      key={fmt}
+                      type="button"
+                      onClick={() => setExportFormat(fmt)}
+                      className={`px-2 py-0.5 rounded-md transition-colors ${
+                        exportFormat === fmt
+                          ? "bg-accent/15 text-accent font-medium"
+                          : "text-foreground-muted hover:text-foreground"
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <label className="flex items-center gap-1.5 cursor-pointer text-foreground-muted hover:text-foreground">
+                <input
+                  type="checkbox"
+                  checked={exportTimestamps}
+                  onChange={(e) => setExportTimestamps(e.target.checked)}
+                />
+                Timestamps
+              </label>
+
+              <div className="flex items-center gap-2 ml-auto">
+                <button
+                  type="button"
+                  onClick={handleCopyNotes}
+                  className={`px-2.5 py-1 rounded-lg border border-border bg-surface hover:bg-surface-hover text-foreground transition-colors ${FOCUS_RING}`}
+                >
+                  {copiedNotes ? "Copied!" : "Copy"}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleExportNotes}
+                  className={`px-3 py-1 rounded-lg bg-accent hover:bg-accent-hover text-white font-medium transition-colors ${FOCUS_RING}`}
+                >
+                  Download .md
+                </button>
+              </div>
+            </div>
+          )}
           <div className="p-1">
             <textarea
               value={note}

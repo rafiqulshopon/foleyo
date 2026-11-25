@@ -1,13 +1,14 @@
 'use client';
 
 import {
-  createContext,
-  useContext,
   useState,
   useCallback,
   useEffect,
   useMemo,
   useRef,
+  useSyncExternalStore,
+  createContext,
+  useContext,
   type ReactNode,
 } from 'react';
 import {
@@ -20,6 +21,13 @@ import {
   isInAppResource,
 } from '@/app/types';
 import { parseCourseDirectory } from '@/app/lib/parse-course';
+import { buildVirtualDirectoryFromFiles } from '@/app/lib/webkit-directory';
+import {
+  applyCourseSyncPayload,
+  buildCourseSyncPayload,
+  readCourseSyncFile,
+  writeCourseSyncFile,
+} from '@/app/lib/folder-sync';
 import { generateCourseThumbnail } from '@/app/lib/thumbnail-generator';
 import {
   loadProgress,
@@ -72,6 +80,8 @@ export interface PendingSeek {
   nonce: number;
 }
 
+export type FolderSyncStatus = 'idle' | 'syncing' | 'synced' | 'error';
+
 interface CourseContextType {
   // State
   course: Course | null;
@@ -88,15 +98,23 @@ interface CourseContextType {
   transcriptOpen: boolean;
   activityOpen: boolean;
   commandPaletteOpen: boolean;
+  backupOpen: boolean;
+  shortcutsOpen: boolean;
+  tourOpen: boolean;
   windowFullscreen: boolean;
   isLoading: boolean;
   error: string | null;
   hasUnsupportedFormat: boolean;
   requiresPermission: boolean;
   invalidLink: boolean;
+  supportsFileSystemAccess: boolean;
+  isFallbackSession: boolean;
+  syncStatus: FolderSyncStatus;
+  syncMessage: string | null;
 
   // Actions
   openFolder: () => Promise<void>;
+  openFolderFromFiles: (files: FileList) => Promise<void>;
   resumeRecentCourse: (folderName: string) => Promise<void>;
   selectLesson: (lesson: Lesson, seekTime?: number) => Promise<void>;
   clearPendingSeek: () => void;
@@ -109,11 +127,16 @@ interface CourseContextType {
   toggleTranscript: () => void;
   setActivityOpen: (open: boolean) => void;
   setCommandPaletteOpen: (open: boolean) => void;
+  setBackupOpen: (open: boolean) => void;
+  setShortcutsOpen: (open: boolean) => void;
+  setTourOpen: (open: boolean) => void;
   toggleWindowFullscreen: () => void;
   exitWindowFullscreen: () => void;
   markComplete: (lessonId: string) => void;
   setModuleComplete: (moduleId: string, completed: boolean) => void;
   resetProgress: () => void;
+  reloadCourseProgress: () => void;
+  syncToFolder: () => Promise<void>;
   hideLesson: (lessonId: string) => void;
   updatePosition: (position: number) => void;
   onVideoEnded: () => void;
@@ -131,7 +154,15 @@ export function useCourse() {
   return ctx;
 }
 
+const subscribeNoop = () => () => {};
+
 export function CourseProvider({ children }: { children: ReactNode }) {
+  const supportsFileSystemAccess = useSyncExternalStore(
+    subscribeNoop,
+    () => typeof window !== 'undefined' && 'showDirectoryPicker' in window,
+    () => true
+  );
+
   const [course, setCourse] = useState<Course | null>(null);
   const [currentLesson, setCurrentLesson] = useState<Lesson | null>(null);
   const [activeResource, setActiveResource] = useState<CourseResource | null>(null);
@@ -145,12 +176,18 @@ export function CourseProvider({ children }: { children: ReactNode }) {
   const [transcriptOpen, setTranscriptOpen] = useState(false);
   const [activityOpen, setActivityOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [backupOpen, setBackupOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [tourOpen, setTourOpen] = useState(false);
   const [windowFullscreen, setWindowFullscreen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hasUnsupportedFormat, setHasUnsupportedFormat] = useState(false);
   const [requiresPermission, setRequiresPermission] = useState(false);
   const [invalidLink, setInvalidLink] = useState(false);
+  const [isFallbackSession, setIsFallbackSession] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<FolderSyncStatus>('idle');
+  const [syncMessage, setSyncMessage] = useState<string | null>(null);
 
   // Video/subtitle blob-URL lifecycle, background duration scan
   const { videoUrl, subtitleTracks, chapters, loadVideo, showVideo, resetVideo } =
@@ -218,6 +255,9 @@ export function CourseProvider({ children }: { children: ReactNode }) {
       resetVideo();
       setCourse(null);
       setCurrentLesson(null);
+      setIsFallbackSession(false);
+      setSyncStatus('idle');
+      setSyncMessage(null);
       dirHandleRef.current = null;
 
       if (!isPopState) {
@@ -270,8 +310,16 @@ export function CourseProvider({ children }: { children: ReactNode }) {
    * set up state, load progress, resume last lesson, and persist to IndexedDB.
    */
   const initializeCourse = useCallback(
-    async (dirHandle: FileSystemDirectoryHandle, parsedCourse: Course) => {
-      dirHandleRef.current = dirHandle;
+    async (
+      dirHandle: FileSystemDirectoryHandle,
+      parsedCourse: Course,
+      options: { isFallback?: boolean } = {}
+    ) => {
+      const isFallback = Boolean(options.isFallback);
+      dirHandleRef.current = isFallback ? null : dirHandle;
+      setIsFallbackSession(isFallback);
+      setSyncStatus('idle');
+      setSyncMessage(null);
 
       // Check for codec-risk containers (MKV/MOV)
       const hasUnsupported = parsedCourse.modules.some((m) =>
@@ -286,6 +334,17 @@ export function CourseProvider({ children }: { children: ReactNode }) {
       if (!courseProgress) {
         courseProgress = createEmptyProgress(parsedCourse.name);
       }
+
+      // If the folder contains a portable `.foleyo.json`, merge its progress/notes/settings
+      const folderSync = await readCourseSyncFile(dirHandle);
+      if (folderSync) {
+        courseProgress = applyCourseSyncPayload(
+          parsedCourse.name,
+          folderSync,
+          courseProgress
+        );
+      }
+
       setProgress(courseProgress);
 
       // Resume last lesson or start from first visible lesson
@@ -333,39 +392,42 @@ export function CourseProvider({ children }: { children: ReactNode }) {
         completed: completedCount,
       };
 
-      const recentEntry: RecentCourse = {
-        name: parsedCourse.name,
-        folderName: dirHandle.name,
-        totalLessons: candidates.length,
-        completedLessons: completedCount,
-        totalModules: parsedCourse.modules.length,
-        lastOpenedAt: Date.now(),
-        lastLessonTitle: currentLessonForCard?.title || '',
-        lastLessonModule: currentModule?.title || '',
-        percentage:
-          candidates.length > 0
-            ? Math.round((completedCount / candidates.length) * 100)
-            : 0,
-      };
-      await saveRecentCourse(recentEntry, dirHandle);
+      if (!isFallback) {
+        const recentEntry: RecentCourse = {
+          name: parsedCourse.name,
+          folderName: dirHandle.name,
+          totalLessons: candidates.length,
+          completedLessons: completedCount,
+          totalModules: parsedCourse.modules.length,
+          lastOpenedAt: Date.now(),
+          lastLessonTitle: currentLessonForCard?.title || '',
+          lastLessonModule: currentModule?.title || '',
+          percentage:
+            candidates.length > 0
+              ? Math.round((completedCount / candidates.length) * 100)
+              : 0,
+        };
+        await saveRecentCourse(recentEntry, dirHandle);
 
-      // Trigger thumbnail generation in the background from the first video lesson
-      const firstVideoLesson = allLessons.find((l) => getLessonKind(l) === 'video');
-      if (firstVideoLesson) {
-        generateCourseThumbnail(parsedCourse.name, firstVideoLesson).catch(console.error);
+        // Trigger thumbnail generation in the background from the first video lesson
+        const firstVideoLesson = allLessons.find((l) => getLessonKind(l) === 'video');
+        if (firstVideoLesson) {
+          generateCourseThumbnail(parsedCourse.name, firstVideoLesson).catch(console.error);
+        }
+
+        await saveCourseCache(dirHandle.name, parsedCourse);
+
+        const urlParam = `?course=${encodeURIComponent(dirHandle.name)}`;
+        if (window.location.search === urlParam) {
+          window.history.replaceState({ isCourseOpen: true, fromDirectLink: true }, '', urlParam);
+        } else if (!window.history.state?.isCourseOpen) {
+          window.history.pushState({ isCourseOpen: true, fromDirectLink: false }, '', urlParam);
+        } else {
+          window.history.replaceState({ isCourseOpen: true, fromDirectLink: false }, '', urlParam);
+        }
       }
 
       setCourse(parsedCourse);
-      await saveCourseCache(dirHandle.name, parsedCourse);
-
-      const urlParam = `?course=${encodeURIComponent(dirHandle.name)}`;
-      if (window.location.search === urlParam) {
-        window.history.replaceState({ isCourseOpen: true, fromDirectLink: true }, '', urlParam);
-      } else if (!window.history.state?.isCourseOpen) {
-        window.history.pushState({ isCourseOpen: true, fromDirectLink: false }, '', urlParam);
-      } else {
-        window.history.replaceState({ isCourseOpen: true, fromDirectLink: false }, '', urlParam);
-      }
     },
     [loadVideo, showVideo, resetVideo]
   );
@@ -409,6 +471,39 @@ export function CourseProvider({ children }: { children: ReactNode }) {
       setIsLoading(false);
     }
   }, [initializeCourse]);
+
+  // Firefox/Safari fallback: open course from `<input type="file" webkitdirectory />`
+  const openFolderFromFiles = useCallback(
+    async (files: FileList) => {
+      if (!files || files.length === 0) return;
+      setIsLoading(true);
+      setError(null);
+      try {
+        const virtualDir = buildVirtualDirectoryFromFiles(files);
+        if (!virtualDir) {
+          setIsLoading(false);
+          return;
+        }
+        const parsedCourse = await parseCourseDirectory(virtualDir);
+        if (parsedCourse.totalLessons === 0) {
+          setError(
+            'No video or HTML lesson files found in the selected folder. Make sure your course folder contains .mp4, .m4v, .webm, .ogv, .mkv, .mov, or .html files.'
+          );
+          setIsLoading(false);
+          return;
+        }
+        await initializeCourse(virtualDir, parsedCourse, { isFallback: true });
+        setIsLoading(false);
+      } catch (e) {
+        console.error('Error opening folder from files:', e);
+        setError(
+          `Failed to open folder: ${e instanceof Error ? e.message : 'Unknown error'}`
+        );
+        setIsLoading(false);
+      }
+    },
+    [initializeCourse]
+  );
 
   // Resume a recently opened course from IndexedDB handle
   const resumeRecentCourse = useCallback(
@@ -653,6 +748,36 @@ export function CourseProvider({ children }: { children: ReactNode }) {
     setProgress(resetCourseProgress(course.name, currentLesson?.id ?? ''));
   }, [course, currentLesson, cancelAutoAdvance]);
 
+  // Reload active course progress from localStorage (e.g. after backup import)
+  const reloadCourseProgress = useCallback(() => {
+    if (!course) return;
+    const loaded = loadProgress(course.name);
+    setProgress(loaded ?? createEmptyProgress(course.name));
+  }, [course]);
+
+  // Write portable `.foleyo.json` into the open course folder
+  const syncToFolder = useCallback(async () => {
+    if (!course) return;
+    if (!dirHandleRef.current) {
+      setSyncStatus('error');
+      setSyncMessage(
+        'Folder sync requires opening the folder in Chrome or Edge (File System Access API).'
+      );
+      return;
+    }
+    setSyncStatus('syncing');
+    setSyncMessage(null);
+    const payload = buildCourseSyncPayload(course.name, progress);
+    const res = await writeCourseSyncFile(dirHandleRef.current, payload);
+    if (res.ok) {
+      setSyncStatus('synced');
+      setSyncMessage('Saved .foleyo.json to course folder');
+    } else {
+      setSyncStatus('error');
+      setSyncMessage(res.reason);
+    }
+  }, [course, progress]);
+
   // Hide a lesson (without touching disk); advance if it's currently open
   const hideLesson = useCallback(
     (lessonId: string) => {
@@ -809,13 +934,21 @@ export function CourseProvider({ children }: { children: ReactNode }) {
       transcriptOpen,
       activityOpen,
       commandPaletteOpen,
+      backupOpen,
+      shortcutsOpen,
+      tourOpen,
       windowFullscreen,
       isLoading,
       error,
       hasUnsupportedFormat,
       requiresPermission,
       invalidLink,
+      supportsFileSystemAccess,
+      isFallbackSession,
+      syncStatus,
+      syncMessage,
       openFolder,
+      openFolderFromFiles,
       resumeRecentCourse,
       selectLesson,
       clearPendingSeek,
@@ -828,11 +961,16 @@ export function CourseProvider({ children }: { children: ReactNode }) {
       toggleTranscript,
       setActivityOpen,
       setCommandPaletteOpen,
+      setBackupOpen,
+      setShortcutsOpen,
+      setTourOpen,
       toggleWindowFullscreen,
       exitWindowFullscreen,
       markComplete,
       setModuleComplete,
       resetProgress,
+      reloadCourseProgress,
+      syncToFolder,
       hideLesson,
       updatePosition,
       onVideoEnded,
@@ -856,13 +994,21 @@ export function CourseProvider({ children }: { children: ReactNode }) {
       transcriptOpen,
       activityOpen,
       commandPaletteOpen,
+      backupOpen,
+      shortcutsOpen,
+      tourOpen,
       windowFullscreen,
       isLoading,
       error,
       hasUnsupportedFormat,
       requiresPermission,
       invalidLink,
+      supportsFileSystemAccess,
+      isFallbackSession,
+      syncStatus,
+      syncMessage,
       openFolder,
+      openFolderFromFiles,
       resumeRecentCourse,
       selectLesson,
       clearPendingSeek,
@@ -875,11 +1021,16 @@ export function CourseProvider({ children }: { children: ReactNode }) {
       toggleTranscript,
       setActivityOpen,
       setCommandPaletteOpen,
+      setBackupOpen,
+      setShortcutsOpen,
+      setTourOpen,
       toggleWindowFullscreen,
       exitWindowFullscreen,
       markComplete,
       setModuleComplete,
       resetProgress,
+      reloadCourseProgress,
+      syncToFolder,
       hideLesson,
       updatePosition,
       onVideoEnded,

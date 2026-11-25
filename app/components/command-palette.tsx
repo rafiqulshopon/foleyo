@@ -58,6 +58,11 @@ export function CommandPalette() {
     toggleTranscript,
     toggleWindowFullscreen,
     setActivityOpen,
+    setBackupOpen,
+    setShortcutsOpen,
+    setTourOpen,
+    syncToFolder,
+    isFallbackSession,
   } = useCourse();
   const { theme, toggleTheme } = useTheme();
   const { lessonDurations } = useLessonDurations();
@@ -198,6 +203,29 @@ export function CommandPalette() {
         },
       },
       {
+        id: 'action-backup',
+        group: 'Settings & Actions',
+        title: 'Backup / Restore Data (JSON)',
+        subtitle: 'Export or import all progress, notes, bookmarks, and settings',
+        keywords: 'backup restore export import json sync portable',
+        onSelect: () => {
+          close();
+          setBackupOpen(true);
+        },
+      },
+      {
+        id: 'action-shortcuts',
+        group: 'Settings & Actions',
+        title: 'Keyboard Shortcuts Cheat Sheet',
+        subtitle: 'View all playback, navigation, and study shortcuts',
+        badge: '?',
+        keywords: 'shortcuts keys hotkeys help cheat sheet',
+        onSelect: () => {
+          close();
+          setShortcutsOpen(true);
+        },
+      },
+      {
         id: 'action-theme',
         group: 'Settings & Actions',
         title: `Switch to ${theme === 'dark' ? 'Light' : 'Dark'} Mode`,
@@ -280,6 +308,32 @@ export function CommandPalette() {
             refreshCourse();
           },
         },
+        ...(!isFallbackSession
+          ? [
+              {
+                id: 'action-folder-sync',
+                group: 'Settings & Actions' as const,
+                title: 'Sync .foleyo.json to Course Folder',
+                subtitle: 'Write portable progress & notes file into this folder',
+                keywords: 'sync folder external drive foleyo.json save disk',
+                onSelect: () => {
+                  close();
+                  syncToFolder();
+                },
+              },
+            ]
+          : []),
+        {
+          id: 'action-tour',
+          group: 'Settings & Actions',
+          title: 'Replay First-Run Tour',
+          subtitle: 'Quick walkthrough of fill-window mode, notes, and shortcuts',
+          keywords: 'tour onboarding walkthrough guide help',
+          onSelect: () => {
+            close();
+            setTourOpen(true);
+          },
+        },
         {
           id: 'action-close-course',
           group: 'Settings & Actions',
@@ -315,6 +369,11 @@ export function CommandPalette() {
     openResource,
     resumeRecentCourse,
     setActivityOpen,
+    setBackupOpen,
+    setShortcutsOpen,
+    setTourOpen,
+    syncToFolder,
+    isFallbackSession,
     toggleTheme,
     openFolder,
     toggleTranscript,

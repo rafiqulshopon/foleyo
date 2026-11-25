@@ -3,7 +3,7 @@
 import { useCourse } from '@/app/context/course-context';
 import { useLessonDurations } from '@/app/context/lesson-durations-context';
 import { useTheme } from '@/app/context/theme-context';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import Image from 'next/image';
 import { FOCUS_RING } from '@/app/components/focus-ring';
 import {
@@ -95,9 +95,14 @@ export function Header() {
     toggleSidebar,
     setActivityOpen,
     setCommandPaletteOpen,
+    setBackupOpen,
+    setShortcutsOpen,
+    supportsFileSystemAccess,
     openFolder,
+    openFolderFromFiles,
     closeCourse,
   } = useCourse();
+  const fallbackFolderInputRef = useRef<HTMLInputElement>(null);
   const { lessonDurations } = useLessonDurations();
   const overrides = useLessonOverrides(course?.name);
   const watchHistory = useWatchHistory();
@@ -296,7 +301,13 @@ export function Header() {
 
             {/* Open different folder */}
             <button
-              onClick={openFolder}
+              onClick={() => {
+                if (supportsFileSystemAccess) {
+                  openFolder();
+                } else {
+                  fallbackFolderInputRef.current?.click();
+                }
+              }}
               className={`p-1.5 rounded-lg hover:bg-surface-hover transition-colors text-foreground-muted hover:text-foreground ${FOCUS_RING}`}
               aria-label="Open different course folder"
               title="Open different course folder"
@@ -314,6 +325,19 @@ export function Header() {
                 <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
               </svg>
             </button>
+            <input
+              ref={fallbackFolderInputRef}
+              type="file"
+              // @ts-expect-error webkitdirectory is non-standard but supported in Firefox/Safari/Chrome
+              webkitdirectory=""
+              directory=""
+              multiple
+              onChange={(e) => {
+                if (e.target.files) openFolderFromFiles(e.target.files);
+                e.target.value = '';
+              }}
+              className="hidden"
+            />
           </>
         )}
 
@@ -362,6 +386,42 @@ export function Header() {
           <kbd className="hidden md:inline font-mono text-[10px] text-foreground-subtle">
             ⌘K
           </kbd>
+        </button>
+
+        {/* Backup / Restore / Sync */}
+        <button
+          type="button"
+          onClick={() => setBackupOpen(true)}
+          className={`p-1.5 rounded-lg hover:bg-surface-hover transition-colors text-foreground-muted hover:text-foreground ${FOCUS_RING}`}
+          aria-label="Backup, restore, and folder sync"
+          title="Backup / Restore & Folder Sync"
+        >
+          <svg
+            width="17"
+            height="17"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+            <polyline points="7 10 12 15 17 10" />
+            <line x1="12" y1="15" x2="12" y2="3" />
+          </svg>
+        </button>
+
+        {/* Keyboard shortcuts cheat sheet (?) */}
+        <button
+          type="button"
+          onClick={() => setShortcutsOpen(true)}
+          className={`hidden sm:inline-flex items-center justify-center w-7 h-7 rounded-lg hover:bg-surface-hover transition-colors text-foreground-muted hover:text-foreground font-mono text-xs font-semibold ${FOCUS_RING}`}
+          aria-label="Keyboard shortcuts"
+          title="Keyboard shortcuts (?)"
+        >
+          ?
         </button>
 
         {/* Theme toggle — always visible */}

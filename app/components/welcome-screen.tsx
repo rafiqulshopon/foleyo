@@ -1,7 +1,7 @@
 'use client';
 
 import { useCourse } from '@/app/context/course-context';
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import {
   loadRecentCourses,
   removeRecentCourse,
@@ -392,31 +392,40 @@ function Reference() {
           <h3 className={`${LABEL} font-medium`}>Shortcuts</h3>
           <div className="mt-3 space-y-2">
             <Shortcut keys={['⌘K']} action="command palette" />
+            <Shortcut keys={['?']} action="all shortcuts" />
             <Shortcut keys={['Space', 'K']} action="play / pause" />
             <Shortcut keys={['←', '→']} action="seek 5s" />
-            <Shortcut keys={['↑', '↓']} action="volume" />
-            <Shortcut keys={['M', 'F']} action="mute · fullscreen" />
+            <Shortcut keys={['M', 'F']} action="mute · fill window" />
             <Shortcut keys={['C', 'T']} action="captions · transcript" />
             <Shortcut keys={['<', '>']} action="speed down / up" />
           </div>
           <p className="mt-3 text-xs leading-relaxed text-foreground-muted">
-            When the player has focus.
+            Press <Kbd>?</Kbd> anytime for the full list.
           </p>
         </div>
       </div>
 
       <p className="mt-12 font-mono text-[11px] text-foreground-muted">
-        Foleyo needs Chrome or Edge on desktop — the File System Access API is Chromium-only.
+        Chrome &amp; Edge remember folders across reloads; Firefox &amp; Safari also work via folder selection (re-select after reload).
       </p>
     </section>
   );
 }
 
 export function WelcomeScreen() {
-  const { openFolder, resumeRecentCourse, isLoading, error } = useCourse();
+  const {
+    openFolder,
+    openFolderFromFiles,
+    supportsFileSystemAccess,
+    resumeRecentCourse,
+    setBackupOpen,
+    isLoading,
+    error,
+  } = useCourse();
   const [recentCourses, setRecentCourses] = useState<RecentCourse[]>([]);
   const [loadingRecent, setLoadingRecent] = useState(true);
   const [resumingFolder, setResumingFolder] = useState<string | null>(null);
+  const fallbackInputRef = useRef<HTMLInputElement>(null);
 
   // Load recent courses from IndexedDB on mount
   useEffect(() => {
@@ -471,9 +480,15 @@ export function WelcomeScreen() {
             works offline.
           </p>
 
-          <div className="mt-8 flex flex-wrap items-center gap-4">
+          <div className="mt-8 flex flex-wrap items-center gap-3">
             <button
-              onClick={openFolder}
+              onClick={() => {
+                if (supportsFileSystemAccess) {
+                  openFolder();
+                } else {
+                  fallbackInputRef.current?.click();
+                }
+              }}
               disabled={isLoading}
               className={`inline-flex items-center gap-2.5 rounded-lg bg-accent px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:cursor-wait disabled:opacity-50 ${FOCUS_RING}`}
             >
@@ -501,10 +516,51 @@ export function WelcomeScreen() {
                 </>
               )}
             </button>
+            <input
+              ref={fallbackInputRef}
+              type="file"
+              // @ts-expect-error webkitdirectory is supported across Firefox, Safari, and Chrome
+              webkitdirectory=""
+              directory=""
+              multiple
+              onChange={(e) => {
+                if (e.target.files) openFolderFromFiles(e.target.files);
+                e.target.value = '';
+              }}
+              className="hidden"
+            />
+            <button
+              type="button"
+              onClick={() => setBackupOpen(true)}
+              className={`inline-flex items-center gap-2 rounded-lg border border-border bg-surface px-4 py-2.5 text-sm font-medium text-foreground-muted transition-colors hover:bg-surface-hover hover:text-foreground ${FOCUS_RING}`}
+            >
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="7 10 12 15 17 10" />
+                <line x1="12" y1="15" x2="12" y2="3" />
+              </svg>
+              Backup / Restore
+            </button>
             {hasRecent && (
               <span className="font-mono text-[11px] text-foreground-muted">or resume below</span>
             )}
           </div>
+
+          {!supportsFileSystemAccess && (
+            <p className="mt-3 font-mono text-[11px] text-foreground-subtle">
+              Running in Firefox/Safari mode — folders work directly, and progress &amp; notes stay saved locally.
+            </p>
+          )}
 
           {error && <ErrorAlert message={error} className="mt-4 max-w-xl" />}
         </header>

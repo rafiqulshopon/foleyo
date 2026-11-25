@@ -14,6 +14,9 @@ import { ErrorAlert } from '@/app/components/error-alert';
 import { WatchActivityModal } from '@/app/components/watch-activity-panel';
 import { CourseCompletionModal } from '@/app/components/course-completion-modal';
 import { CommandPalette } from '@/app/components/command-palette';
+import { BackupModal } from '@/app/components/backup-modal';
+import { ShortcutsModal } from '@/app/components/shortcuts-modal';
+import { OnboardingTour } from '@/app/components/onboarding-tour';
 import {
   computeModuleWatchTimeStats,
   computeWatchTimeStats,
@@ -21,68 +24,7 @@ import {
 } from '@/app/lib/progress-store';
 import { getVisibleLessons, useLessonOverrides } from '@/app/lib/lesson-overrides';
 import { CODEC_WARNING, getLessonKind } from '@/app/types';
-import { useSyncExternalStore, useState, useEffect, useRef } from 'react';
-
-// Feature detection can't change at runtime — a no-op subscription is enough.
-const subscribeNoop = () => () => {};
-
-function BrowserCheck() {
-  // Server snapshot says "supported" so nothing flashes during hydration;
-  // the client snapshot corrects it before first paint commits.
-  const isSupported = useSyncExternalStore(
-    subscribeNoop,
-    () => 'showDirectoryPicker' in window,
-    () => true
-  );
-
-  if (isSupported) return null;
-
-  return (
-    <div className="fixed inset-0 z-50 bg-background flex items-center justify-center p-6">
-      <div className="max-w-md text-center animate-fade-in">
-        <div className="w-16 h-16 mx-auto mb-6 rounded-2xl bg-danger/15 flex items-center justify-center">
-          <svg
-            width="32"
-            height="32"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className="text-danger"
-          >
-            <circle cx="12" cy="12" r="10" />
-            <line x1="15" y1="9" x2="9" y2="15" />
-            <line x1="9" y1="9" x2="15" y2="15" />
-          </svg>
-        </div>
-        <h1 className="text-2xl font-bold text-foreground mb-3">
-          Browser Not Supported
-        </h1>
-        <p className="text-foreground-muted mb-6 leading-relaxed">
-          Foleyo requires the{' '}
-          <strong className="text-foreground">File System Access API</strong> to
-          load course folders from your computer. This API is currently only
-          supported in:
-        </p>
-        <div className="flex justify-center gap-4 mb-6">
-          <div className="px-4 py-3 rounded-xl bg-surface border border-border text-sm">
-            <span className="text-lg">🌐</span>
-            <p className="font-medium mt-1">Chrome</p>
-          </div>
-          <div className="px-4 py-3 rounded-xl bg-surface border border-border text-sm">
-            <span className="text-lg">🔷</span>
-            <p className="font-medium mt-1">Edge</p>
-          </div>
-        </div>
-        <p className="text-xs text-foreground-subtle">
-          Please open this page in Chrome or Edge to use Foleyo.
-        </p>
-      </div>
-    </div>
-  );
-}
+import { useState, useEffect, useRef } from 'react';
 
 function CourseApp() {
   const {
@@ -93,6 +35,7 @@ function CourseApp() {
     progress,
     activityOpen,
     setActivityOpen,
+    isFallbackSession,
     error,
     hasUnsupportedFormat,
     invalidLink,
@@ -100,6 +43,7 @@ function CourseApp() {
   const { lessonDurations } = useLessonDurations();
   const overrides = useLessonOverrides(course?.name);
   const [unsupportedDismissed, setUnsupportedDismissed] = useState(false);
+  const [fallbackNoticeDismissed, setFallbackNoticeDismissed] = useState(false);
   const [completionModalOpen, setCompletionModalOpen] = useState(false);
 
   const visibleLessons = getVisibleLessons(course, overrides);
@@ -143,8 +87,27 @@ function CourseApp() {
 
   return (
     <div className="h-full flex flex-col">
-      <BrowserCheck />
       <Header />
+
+      {/* Compatibility mode banner (Firefox / Safari webkitdirectory) */}
+      {isFallbackSession && !fallbackNoticeDismissed && course && (
+        <div className="bg-accent/10 border-b border-accent/20 px-4 py-2 flex items-center justify-between shrink-0">
+          <p className="text-xs text-foreground-muted">
+            Compatibility mode active — your progress and notes are saved locally,
+            but reloading the page will require re-selecting the folder.
+          </p>
+          <button
+            onClick={() => setFallbackNoticeDismissed(true)}
+            aria-label="Dismiss compatibility mode notice"
+            className="text-foreground-subtle hover:text-foreground transition-colors p-1"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        </div>
+      )}
 
       {/* Unsupported Format banner */}
       {hasUnsupportedFormat && !unsupportedDismissed && course && (
@@ -251,6 +214,9 @@ function CourseApp() {
         open={completionModalOpen}
         onClose={() => setCompletionModalOpen(false)}
       />
+      <BackupModal />
+      <ShortcutsModal />
+      <OnboardingTour />
       <CommandPalette />
     </div>
   );
