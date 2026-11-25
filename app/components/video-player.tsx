@@ -125,6 +125,26 @@ export function VideoPlayer() {
     return 1;
   });
 
+  // Volume/mute persist across lessons. The MediaPlayer remounts while the next
+  // video URL loads, so without this it would fall back to full volume.
+  const [volume, setVolume] = useState<number>(() => {
+    const saved = parseFloat(localStorage.getItem("foleyo_volume") ?? "");
+    return !isNaN(saved) && saved >= 0 && saved <= 1 ? saved : 1;
+  });
+  const [muted, setMuted] = useState<boolean>(
+    () => localStorage.getItem("foleyo_muted") === "true",
+  );
+
+  const handleVolumeChange = useCallback(
+    (detail: { volume: number; muted: boolean }) => {
+      setVolume(detail.volume);
+      setMuted(detail.muted);
+      localStorage.setItem("foleyo_volume", detail.volume.toString());
+      localStorage.setItem("foleyo_muted", detail.muted.toString());
+    },
+    [],
+  );
+
   // Initialize once from localStorage (loaded via dynamic ssr:false, so window exists).
   // Snapshot only — later changes are persisted by onTextTrackChange.
   const [ccInitial] = useState<boolean>(
@@ -250,6 +270,12 @@ export function VideoPlayer() {
     if (remote) {
       remote.changePlaybackRate(playbackRate);
     }
+    // Same for volume/mute: re-apply the persisted level in case the prop didn't sync
+    const player = playerRef.current;
+    if (player) {
+      if (player.volume !== volume) player.volume = volume;
+      if (player.muted !== muted) player.muted = muted;
+    }
     // Report video duration to the context for watch time stats
     if (currentLesson && playerRef.current) {
       const dur = playerRef.current.duration;
@@ -264,7 +290,7 @@ export function VideoPlayer() {
         // Fullscreen request may fail if not triggered by user gesture
       });
     }
-  }, [remote, playbackRate, currentLesson, setLessonDuration, videoUrl]);
+  }, [remote, playbackRate, volume, muted, currentLesson, setLessonDuration, videoUrl]);
 
   // Vidstack passes the new rate as the first argument (detail)
   const handleRateChange = useCallback((rate: number) => {
@@ -396,7 +422,10 @@ export function VideoPlayer() {
                 const isEnabled = track != null;
                 localStorage.setItem("foleyo_cc_enabled", isEnabled.toString());
               }}
+              onVolumeChange={handleVolumeChange}
               playbackRate={playbackRate}
+              volume={volume}
+              muted={muted}
               autoPlay
               className="w-full h-full"
               keyTarget="player"
